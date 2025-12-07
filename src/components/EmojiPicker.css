@@ -1,0 +1,51 @@
+/* src/components/EmojiPicker.css */
+.emoji-picker-container {
+  position: absolute;
+  z-index: 1000;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+  border-radius: 12px;
+  overflow: hidden;
+  animation: slideDown 0.2s ease;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.emoji-picker-container.top {
+  bottom: 60px;
+  right: 10px;
+}
+
+.emoji-picker-container.bottom {
+  top: 60px;
+  right: 10px;
+}
+
+/* Mobile responsive */
+@media (max-width: 768px) {
+  .emoji-picker-container {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    top: auto;
+    border-radius: 12px 12px 0 0;
+    max-height: 60vh;
+  }
+
+  .emoji-picker-container.top,
+  .emoji-picker-container.bottom {
+    bottom: 0;
+    right: 0;
+    left: 0;
+    top: auto;
+  }
+}

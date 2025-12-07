@@ -1,0 +1,45 @@
+/* src/components/ChatPage.css - UPDATED WITH CORRECT VARIABLES */
+@import './Common.css';
+
+.chat-page {
+  display: flex;
+  flex: 1;
+  background-color: var(--bg-primary);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+  overflow: hidden;
+  min-height: 0; /* Important for flexbox */
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .chat-page {
+    flex-direction: column;
+  }
+  
+  .sidebar {
+    width: 100%;
+    height: 35vh;
+    min-height: 200px;
+    max-height: 40vh;
+    border-right: none;
+    border-bottom: 1px solid var(--border-color);
+    flex-shrink: 0;
+  }
+  
+  .chat-area {
+    height: 65vh;
+    min-height: 300px;
+    flex: 1;
+  }
+}
+
+@media (max-width: 480px) {
+  .sidebar {
+    height: 30vh;
+    min-height: 180px;
+  }
+  
+  .chat-area {
+    height: 70vh;
+  }
+}
