@@ -2,7 +2,7 @@
 const cloudinaryConfig = {
   // Your cloud name from Cloudinary dashboard
   // This is in your URL: https://console.cloudinary.com/...
-  cloudName: 'dry1du5ki', // Replace if different
+  cloudName: 'Put your cloud name here', // Replace if different
   
   // Your upload preset from the settings you showed
   uploadPreset: 'chat_app_upload',
