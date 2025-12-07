@@ -5,7 +5,7 @@ const cloudinaryConfig = {
   cloudName: 'Put your cloud name here', // Replace if different
   
   // Your upload preset from the settings you showed
-  uploadPreset: 'chat_app_upload',
+  uploadPreset: 'Put your uploaded preset here',
   
   // API configurations (optional for basic uploads)
   apiKey: '', // Leave empty for now
