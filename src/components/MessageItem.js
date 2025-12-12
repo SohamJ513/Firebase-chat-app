@@ -1,12 +1,8 @@
-// src/components/MessageItem.js - UPDATED WITH OPTIMIZED IMAGE SUPPORT
+// src/components/MessageItem.js - FIXED WITH BASE64 VOICE MESSAGES
 import React, { useState, useEffect } from 'react';
-import { 
-  ref, 
-  update,
-  set,
-  remove 
-} from 'firebase/database';
+import { ref, update, set, remove } from 'firebase/database';
 import { database } from '../firebase';
+import { Play, Pause } from 'lucide-react';
 import './MessageItem.css';
 
 const MessageItem = ({ 
@@ -17,7 +13,9 @@ const MessageItem = ({
   onReply,
   onPin,
   onUnpin,
-  reactions 
+  reactions,
+  isPlayingVoice,
+  onPlayVoice
 }) => {
   const [showMessageOptions, setShowMessageOptions] = useState(null);
   const [hoveredMessage, setHoveredMessage] = useState(null);
@@ -26,97 +24,90 @@ const MessageItem = ({
   const [showToast, setShowToast] = useState(false);
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageError, setImageError] = useState(false);
+  const [voiceWaveformBars, setVoiceWaveformBars] = useState([]);
 
-  // Close emoji picker when clicking outside
+  // Helper functions
+  const getChatId = (uid1, uid2) => uid1 < uid2 ? `${uid1}_${uid2}` : `${uid2}_${uid1}`;
+  const formatTime = (timestamp) => timestamp ? new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+  const formatDuration = (seconds) => !seconds ? '0:00' : seconds < 60 ? `0:${seconds.toString().padStart(2, '0')}` : `${Math.floor(seconds / 60)}:${(seconds % 60).toString().padStart(2, '0')}`;
+
+  const optimizeImageUrl = (url, options = {}) => {
+    if (!url || !url.includes('cloudinary.com')) return url;
+    
+    const { width = 400, height = 400, quality = 'auto', format = 'auto', crop = 'fill' } = options;
+    
+    try {
+      if (url.includes('/upload/') && !url.includes('/upload/c_')) {
+        return url.replace('/upload/', `/upload/c_${crop},w_${width},h_${height},q_${quality},f_${format}/`);
+      }
+      return url;
+    } catch (error) {
+      console.error('Error optimizing image URL:', error);
+      return url;
+    }
+  };
+
+  // Effects
+  useEffect(() => {
+    if (message.type === 'voice') {
+      setVoiceWaveformBars(Array.from({ length: 20 }, () => Math.floor(Math.random() * 20) + 5));
+    }
+  }, [message.type, message.id]);
+
   useEffect(() => {
     const handleClickOutside = (e) => {
       if (!e.target.closest('.message-container') && !e.target.closest('.emoji-picker')) {
         setShowMessageOptions(null);
       }
-      
       if (!e.target.closest('.message-bubble') && !e.target.closest('[style*="position: absolute"]')) {
         setShowMessageOptions(null);
         setEditingMessage(null);
       }
     };
-
+    
     document.addEventListener('click', handleClickOutside);
     return () => document.removeEventListener('click', handleClickOutside);
   }, []);
 
-  // Hide toast after 2 seconds
   useEffect(() => {
     if (showToast) {
-      const timer = setTimeout(() => {
-        setShowToast(false);
-      }, 2000);
+      const timer = setTimeout(() => setShowToast(false), 2000);
       return () => clearTimeout(timer);
     }
   }, [showToast]);
 
-  // Reset image state when message changes
   useEffect(() => {
     setImageLoaded(false);
     setImageError(false);
   }, [message.id]);
 
-  const getChatId = (uid1, uid2) => {
-    return uid1 < uid2 ? `${uid1}_${uid2}` : `${uid2}_${uid1}`;
-  };
-
-  // Optimize Cloudinary image URL for faster loading
-  const optimizeImageUrl = (url, options = {}) => {
-    if (!url || !url.includes('cloudinary.com')) {
-      return url; // Return as-is if not a Cloudinary URL
+  useEffect(() => {
+    if (message.imageUrl) {
+      const img = new Image();
+      img.src = optimizeImageUrl(message.imageUrl);
+      img.onload = () => {}; // Image is cached
     }
+  }, [message.imageUrl]);
 
-    const {
-      width = 400,        // Optimized for chat display
-      height = 400,
-      quality = 'auto',
-      format = 'auto',
-      crop = 'fill'
-    } = options;
-
+  // Message operations
+  const copyMessage = async (isImage = false, isVoice = false) => {
     try {
-      // Parse the URL and insert optimization parameters
-      if (url.includes('/upload/') && !url.includes('/upload/c_')) {
-        // Insert optimization parameters after /upload/
-        return url.replace(
-          '/upload/',
-          `/upload/c_${crop},w_${width},h_${height},q_${quality},f_${format}/`
-        );
+      let copyText = message.text;
+      if (isImage) copyText = message.imageUrl;
+      else if (isVoice) copyText = message.audioData || 'Voice message';
+      
+      if (!copyText) {
+        console.warn('Nothing to copy');
+        return;
       }
       
-      // If already has transformations, return as-is
-      return url;
-    } catch (error) {
-      console.error('Error optimizing image URL:', error);
-      return url; // Fallback to original URL
-    }
-  };
-
-  // Get thumbnail URL for faster preview
-  const getThumbnailUrl = (url) => {
-    return optimizeImageUrl(url, {
-      width: 50,
-      height: 50,
-      quality: 'low',
-      crop: 'fill'
-    });
-  };
-
-  // Copy message/image URL to clipboard
-  const copyMessage = async (text, isImage = false) => {
-    try {
-      const copyText = isImage ? message.imageUrl : text;
       await navigator.clipboard.writeText(copyText);
       setShowToast(true);
       setShowMessageOptions(null);
     } catch (err) {
       console.error('Failed to copy:', err);
       const textArea = document.createElement('textarea');
-      textArea.value = isImage ? message.imageUrl : text;
+      textArea.value = copyText;
       document.body.appendChild(textArea);
       textArea.select();
       try {
@@ -130,32 +121,41 @@ const MessageItem = ({
     }
   };
 
-  // Edit message
-  const startEdit = (message) => {
+  // Copy button handlers - FIXED
+  const handleCopy = (e) => {
+    e.stopPropagation();
+    const isImage = !!message.imageUrl;
+    const isVoice = message.type === 'voice';
+    copyMessage(isImage, isVoice);
+  };
+
+  const handleQuickCopy = (e) => {
+    e.stopPropagation();
+    const isImage = !!message.imageUrl;
+    const isVoice = message.type === 'voice';
+    copyMessage(isImage, isVoice);
+  };
+
+  const startEdit = () => {
     setEditingMessage(message.id);
     setEditText(message.text);
     setShowMessageOptions(null);
   };
 
-  const saveEdit = async (messageId) => {
+  const saveEdit = async () => {
     if (!editText.trim()) return;
-
+    
     try {
-      let messageRef;
-      
-      if (selectedGroup) {
-        messageRef = ref(database, `groups/${selectedGroup.id}/messages/${messageId}`);
-      } else {
-        const chatId = getChatId(currentUser.uid, selectedUser.uid);
-        messageRef = ref(database, `chats/${chatId}/messages/${messageId}`);
-      }
+      const messageRef = selectedGroup
+        ? ref(database, `groups/${selectedGroup.id}/messages/${message.id}`)
+        : ref(database, `chats/${getChatId(currentUser.uid, selectedUser.uid)}/messages/${message.id}`);
       
       await update(messageRef, {
         text: editText.trim(),
         edited: true,
         editedAt: Date.now()
       });
-
+      
       setEditingMessage(null);
       setEditText('');
     } catch (error) {
@@ -168,43 +168,32 @@ const MessageItem = ({
     setEditText('');
   };
 
-  // Delete message
-  const deleteMessage = async (messageId) => {
+  const deleteMessage = async () => {
     if (!window.confirm('Are you sure you want to delete this message?')) return;
-
+    
     try {
-      let messageRef;
-      
-      if (selectedGroup) {
-        messageRef = ref(database, `groups/${selectedGroup.id}/messages/${messageId}`);
-      } else {
-        const chatId = getChatId(currentUser.uid, selectedUser.uid);
-        messageRef = ref(database, `chats/${chatId}/messages/${messageId}`);
-      }
+      const messageRef = selectedGroup
+        ? ref(database, `groups/${selectedGroup.id}/messages/${message.id}`)
+        : ref(database, `chats/${getChatId(currentUser.uid, selectedUser.uid)}/messages/${message.id}`);
       
       await update(messageRef, {
         deleted: true,
         deletedAt: Date.now(),
-        ...(message.imageUrl && { imageUrl: null })
+        ...(message.imageUrl && { imageUrl: null }),
+        ...(message.audioData && { audioData: null })
       });
-
+      
       setShowMessageOptions(null);
     } catch (error) {
       console.error('Error deleting message:', error);
     }
   };
 
-  // Add reaction to message
-  const addReaction = async (messageId, emoji) => {
+  const addReaction = async (emoji) => {
     try {
-      let reactionRef;
-      
-      if (selectedGroup) {
-        reactionRef = ref(database, `groups/${selectedGroup.id}/messages/${messageId}/reactions/${currentUser.uid}`);
-      } else {
-        const chatId = getChatId(currentUser.uid, selectedUser.uid);
-        reactionRef = ref(database, `chats/${chatId}/messages/${messageId}/reactions/${currentUser.uid}`);
-      }
+      const reactionRef = selectedGroup
+        ? ref(database, `groups/${selectedGroup.id}/messages/${message.id}/reactions/${currentUser.uid}`)
+        : ref(database, `chats/${getChatId(currentUser.uid, selectedUser.uid)}/messages/${message.id}/reactions/${currentUser.uid}`);
       
       await set(reactionRef, {
         emoji,
@@ -212,24 +201,18 @@ const MessageItem = ({
         userName: currentUser.displayName || currentUser.email,
         timestamp: Date.now()
       });
-
+      
       setShowMessageOptions(null);
     } catch (error) {
       console.error('Error adding reaction:', error);
     }
   };
 
-  // Remove reaction from message
-  const removeReaction = async (messageId) => {
+  const removeReaction = async () => {
     try {
-      let reactionRef;
-      
-      if (selectedGroup) {
-        reactionRef = ref(database, `groups/${selectedGroup.id}/messages/${messageId}/reactions/${currentUser.uid}`);
-      } else {
-        const chatId = getChatId(currentUser.uid, selectedUser.uid);
-        reactionRef = ref(database, `chats/${chatId}/messages/${messageId}/reactions/${currentUser.uid}`);
-      }
+      const reactionRef = selectedGroup
+        ? ref(database, `groups/${selectedGroup.id}/messages/${message.id}/reactions/${currentUser.uid}`)
+        : ref(database, `chats/${getChatId(currentUser.uid, selectedUser.uid)}/messages/${message.id}/reactions/${currentUser.uid}`);
       
       await remove(reactionRef);
     } catch (error) {
@@ -237,390 +220,157 @@ const MessageItem = ({
     }
   };
 
-  // Get count of each reaction type
-  const getReactionCounts = (reactions) => {
-    if (!reactions) return {};
+  const getReactionCounts = () => {
+    if (!message.reactions) return {};
     
     const counts = {};
-    Object.values(reactions).forEach(reaction => {
-      if (reaction && reaction.emoji) {
-        counts[reaction.emoji] = (counts[reaction.emoji] || 0) + 1;
-      }
+    Object.values(message.reactions).forEach(reaction => {
+      if (reaction?.emoji) counts[reaction.emoji] = (counts[reaction.emoji] || 0) + 1;
     });
     return counts;
   };
 
-  // Check if current user has reacted with specific emoji
-  const hasUserReacted = (reactions, emoji) => {
-    return reactions && reactions[currentUser.uid] && reactions[currentUser.uid].emoji === emoji;
-  };
+  const hasUserReacted = (emoji) => message.reactions?.[currentUser.uid]?.emoji === emoji;
 
-  // Render message status indicator
-  const renderMessageStatus = (message) => {
-    if (message.senderId !== currentUser.uid) return null;
-    
-    switch (message.status) {
-      case 'read':
-        return <span className="message-status read">✓✓</span>;
-      case 'delivered':
-        return <span className="message-status">✓✓</span>;
-      case 'sent':
-        return <span className="message-status">✓</span>;
-      default:
-        return null;
-    }
-  };
-
-  // Open image in new tab with original URL
   const openImageInNewTab = () => {
     if (message.imageUrl) {
-      // Use original URL without optimizations for full view
-      const originalUrl = message.imageUrl.replace(
-        /\/upload\/c_[^,]+,w_\d+,h_\d+,q_[^,]+,f_[^/]+\//,
-        '/upload/'
+      window.open(message.imageUrl.replace(/\/upload\/c_[^,]+,w_\d+,h_\d+,q_[^,]+,f_[^/]+\//, '/upload/'), '_blank');
+    }
+  };
+
+  const renderMessageStatus = () => {
+    if (message.senderId !== currentUser.uid) return null;
+    switch (message.status) {
+      case 'read': return <span className="message-status read">✓✓</span>;
+      case 'delivered': return <span className="message-status">✓✓</span>;
+      case 'sent': return <span className="message-status">✓</span>;
+      default: return null;
+    }
+  };
+
+  // Voice message rendering
+  const renderVoiceMessage = () => {
+    const duration = message.duration || 0;
+    const formattedDuration = message.formattedDuration || formatDuration(duration);
+    
+    return (
+      <div className={`voice-message-player ${isPlayingVoice ? 'playing' : ''}`}>
+        <button className="play-voice-btn" onClick={(e) => { e.stopPropagation(); onPlayVoice(message.id, message.audioData); }} title={isPlayingVoice ? "Pause" : "Play"}>
+          {isPlayingVoice ? <Pause size={16} /> : <Play size={16} />}
+        </button>
+        <div className="voice-info">
+          <span className="voice-label">Voice message</span>
+          <span className="voice-duration">{formattedDuration}</span>
+        </div>
+        <div className="voice-waveform">
+          {voiceWaveformBars.map((height, index) => (
+            <div key={index} className="wave-bar" style={{ '--i': index, height: `${height}px` }} />
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  // Main message content renderer
+  const renderMessageContent = () => {
+    if (message.deleted) return <p className="message-deleted">This message was deleted</p>;
+    
+    if (editingMessage === message.id) {
+      return (
+        <div onClick={(e) => e.stopPropagation()}>
+          <input type="text" value={editText} onChange={(e) => setEditText(e.target.value)} className="edit-input" onKeyDown={(e) => {
+            e.stopPropagation();
+            if (e.key === 'Enter') { e.preventDefault(); saveEdit(); }
+            if (e.key === 'Escape') { e.preventDefault(); cancelEdit(); }
+          }} autoFocus />
+          <div className="edit-buttons">
+            <button className="edit-save-btn" onClick={(e) => { e.stopPropagation(); saveEdit(); }}>Save</button>
+            <button className="edit-cancel-btn" onClick={(e) => { e.stopPropagation(); cancelEdit(); }}>Cancel</button>
+          </div>
+        </div>
       );
-      window.open(originalUrl, '_blank');
     }
-  };
 
-  const formatTime = (timestamp) => {
-    if (!timestamp) return '';
-    const date = new Date(timestamp);
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  };
-
-  // Preload image for better UX
-  useEffect(() => {
+    if (message.type === 'voice') return renderVoiceMessage();
+    
     if (message.imageUrl) {
-      const img = new Image();
-      const optimizedUrl = optimizeImageUrl(message.imageUrl);
-      img.src = optimizedUrl;
-      
-      img.onload = () => {
-        // Image is cached now
-      };
+      return (
+        <div className="message-image-container">
+          <div className="image-wrapper">
+            {!imageLoaded && !imageError && <div className="image-loading"><div className="loading-spinner"></div><span>Loading image...</span></div>}
+            {imageError && <div className="image-error"><span>⚠️ Failed to load image</span><button className="retry-btn" onClick={() => { setImageError(false); setImageLoaded(false); }}>Retry</button></div>}
+            <img src={optimizeImageUrl(message.imageUrl)} alt="Shared in chat" className={`message-image ${imageLoaded ? 'loaded' : ''}`} onClick={openImageInNewTab} onLoad={() => setImageLoaded(true)} onError={() => setImageError(true)} loading="lazy" style={{ display: imageLoaded && !imageError ? 'block' : 'none', maxWidth: '400px', maxHeight: '400px' }} />
+          </div>
+          {message.text && <div className="image-caption">{message.text}</div>}
+        </div>
+      );
     }
-  }, [message.imageUrl]);
+    
+    return <p className="message-text">{message.text}</p>;
+  };
+
+  const handleBubbleClick = (e) => {
+    if (!e.target.closest('.message-image-container') && !e.target.closest('.voice-message-player') && 
+        message.senderId === currentUser.uid && !message.deleted && editingMessage !== message.id && message.type !== 'voice') {
+      e.stopPropagation();
+      setShowMessageOptions(showMessageOptions === message.id ? null : message.id);
+    }
+  };
 
   return (
     <>
-      {/* Toast notification for copy feedback */}
-      {showToast && (
-        <div className="copy-toast">
-          {message.imageUrl ? '✓ Image link copied' : '✓ Message copied to clipboard'}
-        </div>
-      )}
+      {showToast && <div className="copy-toast">{message.imageUrl ? '✓ Image link copied' : message.type === 'voice' ? '✓ Voice message data copied' : '✓ Message copied to clipboard'}</div>}
       
-      <div
-        className={`message-container message-container-${message.id} ${message.senderId === currentUser.uid ? 'sent' : 'received'}`}
-        data-message-id={message.id}
-        onMouseEnter={() => setHoveredMessage(message.id)}
-        onMouseLeave={() => setHoveredMessage(null)}
-      >
+      <div className={`message-container message-container-${message.id} ${message.senderId === currentUser.uid ? 'sent' : 'received'}`} data-message-id={message.id} onMouseEnter={() => setHoveredMessage(message.id)} onMouseLeave={() => setHoveredMessage(null)}>
         <div className="message-wrapper">
-          {/* Reply reference */}
           {message.replyTo && (
             <div className={`reply-reference ${message.senderId === currentUser.uid ? 'sent' : 'received'}`}>
               <div className="reply-sender-name">{message.replyTo.senderName}</div>
-              <div>
-                {message.replyTo.imageUrl ? (
-                  <span className="reply-image-indicator">🖼️ [Image]</span>
-                ) : (
-                  message.replyTo.text
-                )}
-              </div>
+              <div>{message.replyTo.imageUrl ? '🖼️ [Image]' : message.replyTo.type === 'voice' ? '🎤 [Voice message]' : message.replyTo.text}</div>
             </div>
           )}
 
-          <div
-            className={`message-bubble ${message.senderId === currentUser.uid ? 'sent' : 'received'} ${message.replyTo ? 'with-reply' : ''} ${message.imageUrl ? 'has-image' : ''}`}
-            onClick={(e) => {
-              if (!e.target.closest('.message-image-container') && 
-                  message.senderId === currentUser.uid && 
-                  !message.deleted && 
-                  editingMessage !== message.id) {
-                e.stopPropagation();
-                setShowMessageOptions(showMessageOptions === message.id ? null : message.id);
-              }
-            }}
-          >
-            {/* Pinned indicator */}
-            {message.pinned && (
-              <div className="pinned-indicator">
-                📌 Pinned
+          <div className={`message-bubble ${message.senderId === currentUser.uid ? 'sent' : 'received'} ${message.replyTo ? 'with-reply' : ''} ${message.imageUrl ? 'has-image' : ''} ${message.type === 'voice' ? 'has-voice' : ''}`} onClick={handleBubbleClick}>
+            {message.pinned && <div className="pinned-indicator">📌 Pinned</div>}
+            {renderMessageContent()}
+            
+            {showMessageOptions === message.id && message.senderId === currentUser.uid && !message.deleted && editingMessage !== message.id && (
+              <div className="message-options-menu">
+                <button className="message-option-btn copy" onClick={handleCopy}>
+                  {message.imageUrl ? '🔗 Copy Image Link' : message.type === 'voice' ? '🔗 Copy Voice Data' : '📋 Copy'}
+                </button>
+                {!message.imageUrl && message.type !== 'voice' && <button className="message-option-btn" onClick={(e) => { e.stopPropagation(); startEdit(); }}>✏️ Edit</button>}
+                <button className="message-option-btn" onClick={(e) => { e.stopPropagation(); onReply(message); }}>↩️ Reply</button>
+                {message.pinned ? <button className="message-option-btn unpin" onClick={(e) => { e.stopPropagation(); onUnpin(message.id); }}>📌 Unpin</button> : <button className="message-option-btn pin" onClick={(e) => { e.stopPropagation(); onPin(message.id); }}>📌 Pin</button>}
+                <button className="message-option-btn delete" onClick={(e) => { e.stopPropagation(); deleteMessage(); }}>🗑️ Delete</button>
               </div>
             )}
             
-            {message.deleted ? (
-              <p className="message-deleted">This message was deleted</p>
-            ) : editingMessage === message.id ? (
-              <div onClick={(e) => e.stopPropagation()}>
-                <input
-                  type="text"
-                  value={editText}
-                  onChange={(e) => setEditText(e.target.value)}
-                  className="edit-input"
-                  onKeyDown={(e) => {
-                    e.stopPropagation();
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      saveEdit(message.id);
-                    }
-                    if (e.key === 'Escape') {
-                      e.preventDefault();
-                      cancelEdit();
-                    }
-                  }}
-                  autoFocus
-                />
-                <div className="edit-buttons">
-                  <button 
-                    className="edit-save-btn"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      saveEdit(message.id);
-                    }}
-                  >
-                    Save
-                  </button>
-                  <button 
-                    className="edit-cancel-btn"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      cancelEdit();
-                    }}
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <>
-                {/* OPTIMIZED IMAGE DISPLAY */}
-                {message.imageUrl && (
-                  <div className="message-image-container">
-                    <div className="image-wrapper">
-                      {!imageLoaded && !imageError && (
-                        <div className="image-loading">
-                          <div className="loading-spinner"></div>
-                          <span>Loading image...</span>
-                        </div>
-                      )}
-                      {imageError && (
-                        <div className="image-error">
-                          <span>⚠️ Failed to load image</span>
-                          <button 
-                            className="retry-btn"
-                            onClick={() => {
-                              setImageError(false);
-                              setImageLoaded(false);
-                            }}
-                          >
-                            Retry
-                          </button>
-                        </div>
-                      )}
-                      <img 
-                        src={optimizeImageUrl(message.imageUrl)}
-                        alt="Shared in chat"
-                        className={`message-image ${imageLoaded ? 'loaded' : ''}`}
-                        onClick={openImageInNewTab}
-                        onLoad={() => setImageLoaded(true)}
-                        onError={() => setImageError(true)}
-                        loading="lazy"
-                        style={{ 
-                          display: imageLoaded && !imageError ? 'block' : 'none',
-                          maxWidth: '400px',
-                          maxHeight: '400px'
-                        }}
-                        // Add thumbnail for progressive loading (optional)
-                        data-thumbnail={getThumbnailUrl(message.imageUrl)}
-                      />
-                    </div>
-                    {message.text && (
-                      <div className="image-caption">{message.text}</div>
-                    )}
-                  </div>
-                )}
-                
-                {/* TEXT MESSAGE */}
-                {!message.imageUrl && message.text && (
-                  <p className="message-text">{message.text}</p>
-                )}
-                
-                {/* IMAGE-ONLY MESSAGE PLACEHOLDER */}
-                {message.imageUrl && !message.text && !imageLoaded && (
-                  <div className="image-placeholder">
-                    <div className="placeholder-icon">🖼️</div>
-                    <span>Image message</span>
-                  </div>
-                )}
-                
-                {/* MESSAGE META DATA */}
-                <div className="message-meta">
-                  <span>
-                    {formatTime(message.createdAt)}
-                    {message.edited && <span> (edited)</span>}
-                  </span>
-                  {renderMessageStatus(message)}
-                </div>
-              </>
-            )}
-
-            {/* Message Options Menu */}
-            {showMessageOptions === message.id && message.senderId === currentUser.uid && !message.deleted && editingMessage !== message.id && (
-              <div className="message-options-menu">
-                {/* Copy button */}
-                <button
-                  className="message-option-btn copy"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (message.imageUrl) {
-                      copyMessage('', true);
-                    } else {
-                      copyMessage(message.text, false);
-                    }
-                  }}
-                >
-                  {message.imageUrl ? '🔗 Copy Image Link' : '📋 Copy'}
-                </button>
-                
-                {!message.imageUrl && (
-                  <button
-                    className="message-option-btn"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      startEdit(message);
-                    }}
-                  >
-                    ✏️ Edit
-                  </button>
-                )}
-                
-                <button
-                  className="message-option-btn"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onReply(message);
-                  }}
-                >
-                  ↩️ Reply
-                </button>
-                
-                {message.pinned ? (
-                  <button
-                    className="message-option-btn unpin"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onUnpin(message.id);
-                    }}
-                  >
-                    📌 Unpin
-                  </button>
-                ) : (
-                  <button
-                    className="message-option-btn pin"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onPin(message.id);
-                    }}
-                  >
-                    📌 Pin
-                  </button>
-                )}
-                
-                <button
-                  className="message-option-btn delete"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    deleteMessage(message.id);
-                  }}
-                >
-                  🗑️ Delete
-                </button>
-              </div>
-            )}
+            <div className="message-meta">
+              <span>{formatTime(message.createdAt)}{message.edited && ' (edited)'}</span>
+              {renderMessageStatus()}
+            </div>
           </div>
 
-          {/* Reactions Display */}
           {message.reactions && Object.keys(message.reactions).length > 0 && (
             <div className={`reactions-container ${message.senderId === currentUser.uid ? 'sent' : 'received'}`}>
-              {Object.entries(getReactionCounts(message.reactions)).map(([emoji, count]) => (
-                <button
-                  key={emoji}
-                  className={`reaction-btn ${hasUserReacted(message.reactions, emoji) ? 'active' : ''}`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (hasUserReacted(message.reactions, emoji)) {
-                      removeReaction(message.id);
-                    } else {
-                      addReaction(message.id, emoji);
-                    }
-                  }}
-                >
+              {Object.entries(getReactionCounts()).map(([emoji, count]) => (
+                <button key={emoji} className={`reaction-btn ${hasUserReacted(emoji) ? 'active' : ''}`} onClick={(e) => { e.stopPropagation(); hasUserReacted(emoji) ? removeReaction() : addReaction(emoji); }}>
                   {emoji} {count}
                 </button>
               ))}
             </div>
           )}
 
-          {/* Quick Actions */}
-          {!message.deleted && hoveredMessage === message.id && (
+          {!message.deleted && hoveredMessage === message.id && message.type !== 'voice' && (
             <div className={`quick-actions ${message.senderId === currentUser.uid ? 'sent' : 'received'}`}>
-              <button
-                className="quick-action-btn"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onReply(message);
-                }}
-                title="Reply"
-              >
-                ↩️
-              </button>
-              
-              <button
-                className="quick-action-btn"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setShowMessageOptions(showMessageOptions === `reactions-${message.id}` ? null : `reactions-${message.id}`);
-                }}
-                title="React"
-              >
-                😊
-              </button>
-              
-              <button
-                className="quick-action-btn"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (message.imageUrl) {
-                    copyMessage('', true);
-                  } else {
-                    copyMessage(message.text, false);
-                  }
-                }}
-                title="Copy"
-              >
-                📋
-              </button>
+              <button className="quick-action-btn" onClick={(e) => { e.stopPropagation(); onReply(message); }} title="Reply">↩️</button>
+              <button className="quick-action-btn" onClick={(e) => { e.stopPropagation(); setShowMessageOptions(showMessageOptions === `reactions-${message.id}` ? null : `reactions-${message.id}`); }} title="React">😊</button>
+              <button className="quick-action-btn" onClick={handleQuickCopy} title="Copy">📋</button>
               
               {showMessageOptions === `reactions-${message.id}` && (
-                <div 
-                  className={`emoji-picker ${message.senderId === currentUser.uid ? 'sent' : 'received'}`}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  {reactions.map(emoji => (
-                    <button
-                      key={emoji}
-                      className="emoji-btn"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        addReaction(message.id, emoji);
-                      }}
-                    >
-                      {emoji}
-                    </button>
-                  ))}
+                <div className={`emoji-picker ${message.senderId === currentUser.uid ? 'sent' : 'received'}`} onClick={(e) => e.stopPropagation()}>
+                  {reactions.map(emoji => <button key={emoji} className="emoji-btn" onClick={(e) => { e.stopPropagation(); addReaction(emoji); }}>{emoji}</button>)}
                 </div>
               )}
             </div>

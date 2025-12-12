@@ -1,0 +1,276 @@
+.voice-recorder-container {
+  background: #2d3748;
+  border-radius: 12px;
+  padding: 20px;
+  width: 350px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
+  color: white;
+}
+
+/* Recording UI */
+.recording-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.pulse-indicator {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pulse-circle {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  background: #f56565;
+  border-radius: 50%;
+  animation: pulse 1.5s infinite;
+}
+
+.pulse-indicator svg {
+  position: relative;
+  z-index: 2;
+}
+
+.recording-text {
+  flex: 1;
+  font-weight: 500;
+}
+
+.recording-time {
+  font-family: monospace;
+  font-size: 1.1em;
+  color: #cbd5e0;
+}
+
+.recording-controls {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.start-record-btn, .stop-record-btn, .cancel-btn {
+  flex: 1;
+  padding: 12px;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.start-record-btn {
+  background: linear-gradient(135deg, #4299e1, #3182ce);
+  color: white;
+}
+
+.start-record-btn:hover {
+  background: linear-gradient(135deg, #3182ce, #2c5282);
+  transform: translateY(-2px);
+}
+
+.stop-record-btn {
+  background: #f56565;
+  color: white;
+}
+
+.stop-record-btn:hover {
+  background: #e53e3e;
+  transform: translateY(-2px);
+}
+
+.cancel-btn {
+  background: #4a5568;
+  color: #cbd5e0;
+}
+
+.cancel-btn:hover {
+  background: #718096;
+}
+
+/* Visualizer */
+.visualizer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  height: 60px;
+  margin-top: 10px;
+}
+
+.bar {
+  width: 4px;
+  background: linear-gradient(to top, #4299e1, #38b2ac);
+  border-radius: 2px;
+  animation: wave 1s ease-in-out infinite alternate;
+}
+
+@keyframes wave {
+  from { transform: scaleY(0.3); }
+  to { transform: scaleY(1); }
+}
+
+@keyframes pulse {
+  0% {
+    transform: scale(0.95);
+    opacity: 0.7;
+  }
+  50% {
+    transform: scale(1.1);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(0.95);
+    opacity: 0.7;
+  }
+}
+
+/* Preview UI */
+.preview-ui {
+  animation: slideIn 0.3s ease-out;
+}
+
+.preview-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #4a5568;
+}
+
+.preview-title {
+  font-weight: 600;
+  font-size: 1.1em;
+}
+
+.preview-duration {
+  font-family: monospace;
+  color: #cbd5e0;
+}
+
+/* Playback Controls */
+.playback-controls {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  margin-bottom: 25px;
+}
+
+.play-btn {
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  background: #4299e1;
+  border: none;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.play-btn:hover:not(:disabled) {
+  background: #3182ce;
+  transform: scale(1.05);
+}
+
+.play-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.progress-container {
+  flex: 1;
+}
+
+.progress-bar {
+  height: 6px;
+  background: #4a5568;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #4299e1, #38b2ac);
+  border-radius: 3px;
+  transition: width 0.1s linear;
+}
+
+/* Preview Actions */
+.preview-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.send-btn, .re-record-btn {
+  flex: 1;
+  padding: 12px;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.send-btn {
+  background: linear-gradient(135deg, #48bb78, #38a169);
+  color: white;
+}
+
+.send-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #38a169, #2f855a);
+  transform: translateY(-2px);
+}
+
+.re-record-btn {
+  background: #4a5568;
+  color: #cbd5e0;
+}
+
+.re-record-btn:hover:not(:disabled) {
+  background: #718096;
+}
+
+.send-btn:disabled, .re-record-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none !important;
+}
+
+/* Spin animation for loader */
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

@@ -1,18 +1,13 @@
-// src/components/ChatArea.js - UPDATED WITH NOTIFICATION UTILITY
+// src/components/ChatArea.js - UPDATED WITH CORRECTED LAYOUT
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  ref, 
-  onValue, 
-  push, 
-  update,
-  serverTimestamp,
-  set
-} from 'firebase/database';
+import { ref, onValue, push, update, serverTimestamp, set } from 'firebase/database';
 import { database } from '../firebase';
-import { sendNotification } from '../utils/sendNotification'; // ADDED: Import utility
+import { sendNotification } from '../utils/sendNotification';
 import MessageItem from './MessageItem';
 import EmojiPicker from './EmojiPicker';
 import ImageUploadButton from './ImageUploadButton';
+import VoiceRecorder from './VoiceRecorder';
+import { Mic } from 'lucide-react';
 import './ChatArea.css';
 
 const ChatArea = ({ selectedUser, selectedGroup, currentUser }) => {
@@ -22,129 +17,210 @@ const ChatArea = ({ selectedUser, selectedGroup, currentUser }) => {
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
+  const [uploadingVoice, setUploadingVoice] = useState(false);
   const [replyingTo, setReplyingTo] = useState(null);
   const [isNearBottom, setIsNearBottom] = useState(true);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   
-  // TYPING INDICATOR STATES
+  const [showVoiceRecorder, setShowVoiceRecorder] = useState(false);
+  const [playingVoiceId, setPlayingVoiceId] = useState(null);
   const [isTyping, setIsTyping] = useState(false);
   const [otherUserTyping, setOtherUserTyping] = useState(false);
-  const [typingTimeout, setTypingTimeout] = useState(null);
   const [typingUsers, setTypingUsers] = useState({});
-  
-  // EMOJI PICKER STATES
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-  const emojiButtonRef = useRef(null);
   
+  const typingTimeout = useRef(null);
+  const audioRefs = useRef({});
+  const emojiButtonRef = useRef(null);
   const messagesEndRef = useRef(null);
   const messagesContainerRef = useRef(null);
 
-  // Available reactions
   const reactions = ['👍', '❤️', '😂', '😮', '😢', '😡'];
 
-  const getChatId = (uid1, uid2) => {
-    return uid1 < uid2 ? `${uid1}_${uid2}` : `${uid2}_${uid1}`;
-  };
+  // Helper functions
+  const getChatId = (uid1, uid2) => uid1 < uid2 ? `${uid1}_${uid2}` : `${uid2}_${uid1}`;
+  const formatTime = (timestamp) => timestamp ? new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+  const formatDuration = (seconds) => !seconds ? '0:00' : seconds < 60 ? `0:${seconds.toString().padStart(2, '0')}` : `${Math.floor(seconds / 60)}:${(seconds % 60).toString().padStart(2, '0')}`;
+  
+  const blobToBase64 = (blob) => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
 
-  // ========== UPDATED: NOTIFICATION TRIGGER FUNCTION ==========
-  const triggerNotificationForRecipient = async (messageData) => {
+  // Notification trigger
+  const triggerNotification = async (messageData) => {
+    if (selectedGroup || !selectedUser) return;
+    
     try {
-      // Only trigger for direct messages (not groups)
-      if (selectedGroup || !selectedUser) {
-        console.log('Skipping notification: Group chat or no selected user');
-        return;
-      }
-      
       const recipientId = selectedUser.uid;
       const chatId = getChatId(currentUser.uid, recipientId);
       
-      console.log('🔔 Preparing notification for recipient:', recipientId);
-      
-      // Use the utility function from sendNotification.js
-      const success = await sendNotification({
-        recipientId: recipientId,
+      await sendNotification({
+        recipientId,
         title: currentUser.displayName || currentUser.email || 'New Message',
-        body: messageData.text || '[Image]',
-        chatId: chatId,
+        body: messageData.type === 'voice' ? '🎤 Voice message' : (messageData.text || '[Image]'),
+        chatId,
         senderId: currentUser.uid,
         senderName: currentUser.displayName || currentUser.email,
-        messageText: messageData.text || '[Image]',
-        type: 'message'
+        messageText: messageData.type === 'voice' ? 'Voice message' : (messageData.text || '[Image]'),
+        type: messageData.type || 'message'
       });
-      
-      if (success) {
-        console.log('✅ Notification successfully triggered for:', recipientId);
-      } else {
-        console.log('⚠️ Notification could not be sent (recipient may not have FCM token)');
-      }
-      
     } catch (error) {
-      console.error('❌ Error triggering notification:', error);
+      console.error('Error triggering notification:', error);
     }
   };
-  // ===========================================================
 
-  // TYPING INDICATOR: Update typing status in Firebase
+  // Voice message handler
+  const sendVoiceMessage = async (audioBlob, duration) => {
+    if ((!selectedUser && !selectedGroup) || !currentUser) return;
+
+    setUploadingVoice(true);
+    
+    try {
+      const base64Audio = await blobToBase64(audioBlob);
+      const formattedDuration = formatDuration(duration);
+      
+      const voiceMessageData = {
+        text: `🎤 Voice message (${formattedDuration})`,
+        senderId: currentUser.uid,
+        senderName: currentUser.displayName || currentUser.email,
+        timestamp: serverTimestamp(),
+        createdAt: Date.now(),
+        edited: false,
+        status: "sent",
+        readBy: {},
+        reactions: {},
+        type: 'voice',
+        audioData: base64Audio,
+        duration,
+        formattedDuration,
+        replyTo: replyingTo ? {
+          messageId: replyingTo.id,
+          text: replyingTo.text || '[Image or Voice]',
+          senderName: replyingTo.senderName
+        } : null
+      };
+      
+      const messagesRef = selectedGroup 
+        ? ref(database, `groups/${selectedGroup.id}/messages`)
+        : ref(database, `chats/${getChatId(currentUser.uid, selectedUser.uid)}/messages`);
+      
+      await push(messagesRef, voiceMessageData);
+      await triggerNotification(voiceMessageData);
+      
+      if (selectedGroup) {
+        await update(ref(database, `groups/${selectedGroup.id}`), {
+          lastActivity: Date.now(),
+          lastMessage: '🎤 Voice message'
+        });
+      }
+      
+      setReplyingTo(null);
+      setShowVoiceRecorder(false);
+      
+      if (isNearBottom) setTimeout(() => scrollToBottom(), 100);
+    } catch (error) {
+      console.error('Error sending voice message:', error);
+      alert('Failed to send voice message. Please try again.');
+    } finally {
+      setUploadingVoice(false);
+    }
+  };
+
+  // Voice playback
+  const playVoiceMessage = (messageId, audioData) => {
+    if (playingVoiceId && playingVoiceId !== messageId) {
+      const prevAudio = audioRefs.current[playingVoiceId];
+      if (prevAudio) {
+        prevAudio.pause();
+        prevAudio.currentTime = 0;
+      }
+    }
+    
+    let audio = audioRefs.current[messageId];
+    if (!audio) {
+      try {
+        const byteString = atob(audioData.split(',')[1]);
+        const mimeString = audioData.split(',')[0].split(':')[1].split(';')[0];
+        const ab = new ArrayBuffer(byteString.length);
+        const ia = new Uint8Array(ab);
+        
+        for (let i = 0; i < byteString.length; i++) {
+          ia[i] = byteString.charCodeAt(i);
+        }
+        
+        const audioBlob = new Blob([ab], { type: mimeString });
+        audio = new Audio(URL.createObjectURL(audioBlob));
+        audioRefs.current[messageId] = audio;
+        
+        audio.onended = () => setPlayingVoiceId(null);
+        audio.onpause = () => {
+          if (playingVoiceId === messageId) setPlayingVoiceId(null);
+        };
+      } catch (error) {
+        console.error('Error creating audio:', error);
+        alert('Unable to play voice message. The audio data may be corrupted.');
+        return;
+      }
+    }
+    
+    if (playingVoiceId === messageId) {
+      audio.pause();
+      setPlayingVoiceId(null);
+    } else {
+      audio.play()
+        .then(() => setPlayingVoiceId(messageId))
+        .catch(error => {
+          console.error('Error playing audio:', error);
+          alert('Unable to play voice message.');
+        });
+    }
+  };
+
+  // Typing indicator
   const updateTypingStatus = (isTyping) => {
     if ((!selectedUser && !selectedGroup) || !currentUser) return;
 
-    try {
-      let typingRef;
-      
-      if (selectedGroup) {
-        typingRef = ref(database, `groups/${selectedGroup.id}/typing/${currentUser.uid}`);
-      } else {
-        const chatId = getChatId(currentUser.uid, selectedUser.uid);
-        typingRef = ref(database, `chats/${chatId}/typing/${currentUser.uid}`);
-      }
-      
-      if (isTyping) {
-        set(typingRef, {
-          userId: currentUser.uid,
-          userName: currentUser.displayName || currentUser.email,
-          timestamp: Date.now()
-        });
-      } else {
-        set(typingRef, null);
-      }
-    } catch (error) {
-      console.error('Error updating typing status:', error);
-    }
+    const typingRef = selectedGroup
+      ? ref(database, `groups/${selectedGroup.id}/typing/${currentUser.uid}`)
+      : ref(database, `chats/${getChatId(currentUser.uid, selectedUser.uid)}/typing/${currentUser.uid}`);
+    
+    isTyping ? set(typingRef, {
+      userId: currentUser.uid,
+      userName: currentUser.displayName || currentUser.email,
+      timestamp: Date.now()
+    }) : set(typingRef, null);
   };
 
-  // TYPING INDICATOR: Handle input change with debounce
   const handleInputChange = (e) => {
     const value = e.target.value;
     setNewMessage(value);
     
-    if (typingTimeout) {
-      clearTimeout(typingTimeout);
-    }
+    if (typingTimeout.current) clearTimeout(typingTimeout.current);
     
     if (value.length > 0 && !isTyping) {
       setIsTyping(true);
       updateTypingStatus(true);
     }
     
-    const timeout = setTimeout(() => {
+    typingTimeout.current = setTimeout(() => {
       if (isTyping) {
         setIsTyping(false);
         updateTypingStatus(false);
       }
     }, 1500);
-    
-    setTypingTimeout(timeout);
   };
 
-  // Handle image upload from ImageUploadButton
+  // Image upload
   const handleImageUpload = (imageUrl) => {
     if (!selectedUser && !selectedGroup) return;
     
     setUploadingImage(true);
-    
     const imageMessageData = {
       text: '',
-      imageUrl: imageUrl,
+      imageUrl,
       senderId: currentUser.uid,
       senderName: currentUser.displayName || currentUser.email,
       timestamp: serverTimestamp(),
@@ -163,239 +239,53 @@ const ChatArea = ({ selectedUser, selectedGroup, currentUser }) => {
     sendImageMessage(imageMessageData);
   };
 
-  // Send image message to Firebase
   const sendImageMessage = async (messageData) => {
     try {
-      let messagesRef;
+      const messagesRef = selectedGroup
+        ? ref(database, `groups/${selectedGroup.id}/messages`)
+        : ref(database, `chats/${getChatId(currentUser.uid, selectedUser.uid)}/messages`);
       
-      if (selectedGroup) {
-        messagesRef = ref(database, `groups/${selectedGroup.id}/messages`);
-      } else {
-        const chatId = getChatId(currentUser.uid, selectedUser.uid);
-        messagesRef = ref(database, `chats/${chatId}/messages`);
-      }
-
       await push(messagesRef, messageData);
-      
-      // ========== TRIGGER NOTIFICATION ==========
-      if (selectedUser) {
-        await triggerNotificationForRecipient(messageData);
-      }
-      // ==========================================
+      if (selectedUser) await triggerNotification(messageData);
       
       if (selectedGroup) {
-        const groupRef = ref(database, `groups/${selectedGroup.id}`);
-        await update(groupRef, {
+        await update(ref(database, `groups/${selectedGroup.id}`), {
           lastActivity: Date.now(),
           lastMessage: '[Image]'
         });
       }
       
       setReplyingTo(null);
-      
-      if (isNearBottom) {
-        setTimeout(() => {
-          scrollToBottom();
-        }, 100);
-      }
+      if (isNearBottom) setTimeout(() => scrollToBottom(), 100);
     } catch (error) {
-      console.error('Error sending image message:', error);
+      console.error('Error sending image:', error);
       alert('Failed to send image. Please try again.');
     } finally {
       setUploadingImage(false);
     }
   };
 
-  // EMOJI PICKER: Handle emoji selection
-  const handleEmojiSelect = (emoji) => {
-    setNewMessage(prev => prev + emoji);
-    document.querySelector('.message-input')?.focus();
-    
-    if (!isTyping && (selectedUser || selectedGroup)) {
-      setIsTyping(true);
-      updateTypingStatus(true);
-      
-      if (typingTimeout) {
-        clearTimeout(typingTimeout);
-      }
-      
-      const timeout = setTimeout(() => {
-        if (isTyping) {
-          setIsTyping(false);
-          updateTypingStatus(false);
-        }
-      }, 1500);
-      
-      setTypingTimeout(timeout);
-    }
-  };
-
-  // EMOJI PICKER: Toggle emoji picker
-  const toggleEmojiPicker = () => {
-    setShowEmojiPicker(!showEmojiPicker);
-  };
-
-  // EMOJI PICKER: Close when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (
-        showEmojiPicker &&
-        emojiButtonRef.current &&
-        !emojiButtonRef.current.contains(event.target) &&
-        !(event.target.closest && event.target.closest('.emoji-picker-container'))
-      ) {
-        setShowEmojiPicker(false);
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, [showEmojiPicker]);
-
-  // TYPING INDICATOR: Listen to other users' typing status
-  useEffect(() => {
-    if ((selectedUser || selectedGroup) && currentUser) {
-      let typingRef;
-      
-      if (selectedGroup) {
-        typingRef = ref(database, `groups/${selectedGroup.id}/typing`);
-      } else {
-        const chatId = getChatId(currentUser.uid, selectedUser.uid);
-        typingRef = ref(database, `chats/${chatId}/typing`);
-      }
-      
-      const unsubscribe = onValue(typingRef, (snapshot) => {
-        const typingData = snapshot.val() || {};
-        
-        if (selectedGroup) {
-          const otherTypingUsers = {};
-          Object.entries(typingData).forEach(([userId, typingInfo]) => {
-            if (userId !== currentUser.uid && typingInfo) {
-              otherTypingUsers[userId] = typingInfo;
-            }
-          });
-          setTypingUsers(otherTypingUsers);
-          setOtherUserTyping(Object.keys(otherTypingUsers).length > 0);
-        } else {
-          const otherUserId = selectedUser.uid;
-          const isOtherTyping = typingData[otherUserId] !== undefined && typingData[otherUserId] !== null;
-          setOtherUserTyping(isOtherTyping);
-        }
-      });
-
-      return () => {
-        unsubscribe();
-        if (isTyping) {
-          updateTypingStatus(false);
-        }
-      };
-    }
-  }, [selectedUser, selectedGroup, currentUser, isTyping]);
-
-  // Clean up typing timeout on unmount
-  useEffect(() => {
-    return () => {
-      if (typingTimeout) {
-        clearTimeout(typingTimeout);
-      }
-      if (isTyping) {
-        updateTypingStatus(false);
-      }
-    };
-  }, [typingTimeout, isTyping]);
-
-  // Listen to messages for selected chat or group
-  useEffect(() => {
-    if ((selectedUser || selectedGroup) && currentUser) {
-      let messagesRef;
-      
-      if (selectedGroup) {
-        messagesRef = ref(database, `groups/${selectedGroup.id}/messages`);
-      } else {
-        const chatId = getChatId(currentUser.uid, selectedUser.uid);
-        messagesRef = ref(database, `chats/${chatId}/messages`);
-      }
-      
-      const unsubscribe = onValue(messagesRef, (snapshot) => {
-        const messagesData = snapshot.val() || {};
-        const messagesList = Object.keys(messagesData)
-          .map(key => ({
-            id: key,
-            ...messagesData[key],
-            status: messagesData[key].status || 'sent',
-            readBy: messagesData[key].readBy || {},
-            pinned: messagesData[key].pinned || false
-          }))
-          .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
-        
-        setMessages(messagesList);
-        
-        const pinned = messagesList.filter(msg => msg.pinned && !msg.deleted);
-        setPinnedMessages(pinned);
-      });
-
-      return () => unsubscribe();
-    }
-  }, [selectedUser, selectedGroup, currentUser]);
-
-  // ========== REMOVED: Notification listener (moved to App.js) ==========
-  // The notification listener is now handled in App.js for better centralization
-  // ======================================================================
-
-  // Handle scroll behavior
-  useEffect(() => {
-    if (isNearBottom) {
-      scrollToBottom();
-    }
-  }, [messages]);
-
-  const handleScroll = () => {
-    if (messagesContainerRef.current) {
-      const { scrollTop, scrollHeight, clientHeight } = messagesContainerRef.current;
-      const threshold = 100;
-      const nearBottom = scrollHeight - scrollTop - clientHeight < threshold;
-      setIsNearBottom(nearBottom);
-      setShowScrollToBottom(!nearBottom);
-    }
-  };
-
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
-
-  // Send text message - UPDATED WITH NOTIFICATION
+  // Message functions
   const sendMessage = async (e) => {
     e.preventDefault();
     if (!newMessage.trim() || (!selectedUser && !selectedGroup) || loading) return;
 
-    // Clear typing status when sending
     if (isTyping) {
       setIsTyping(false);
       updateTypingStatus(false);
     }
-    if (typingTimeout) {
-      clearTimeout(typingTimeout);
-    }
-
-    // Close emoji picker when sending
+    if (typingTimeout.current) clearTimeout(typingTimeout.current);
+    
     setShowEmojiPicker(false);
-
     const messageText = newMessage.trim();
     setLoading(true);
-    setNewMessage(''); // Clear input immediately for better UX
+    setNewMessage('');
     
     try {
-      let messagesRef;
+      const messagesRef = selectedGroup
+        ? ref(database, `groups/${selectedGroup.id}/messages`)
+        : ref(database, `chats/${getChatId(currentUser.uid, selectedUser.uid)}/messages`);
       
-      if (selectedGroup) {
-        messagesRef = ref(database, `groups/${selectedGroup.id}/messages`);
-      } else {
-        const chatId = getChatId(currentUser.uid, selectedUser.uid);
-        messagesRef = ref(database, `chats/${chatId}/messages`);
-      }
-
       const messageData = {
         text: messageText,
         senderId: currentUser.uid,
@@ -414,145 +304,186 @@ const ChatArea = ({ selectedUser, selectedGroup, currentUser }) => {
       };
 
       await push(messagesRef, messageData);
+      if (selectedUser) await triggerNotification({ ...messageData, text: messageText });
       
-      // ========== TRIGGER NOTIFICATION ==========
-      if (selectedUser) {
-        await triggerNotificationForRecipient({
-          ...messageData,
-          text: messageText
-        });
-      }
-      // ==========================================
-      
-      // Clear reply if exists
-      setReplyingTo(null);
-      
-      // Update group's last activity
       if (selectedGroup) {
-        const groupRef = ref(database, `groups/${selectedGroup.id}`);
-        await update(groupRef, {
+        await update(ref(database, `groups/${selectedGroup.id}`), {
           lastActivity: Date.now(),
           lastMessage: messageText
         });
       }
       
+      setReplyingTo(null);
+      if (isNearBottom) setTimeout(() => scrollToBottom(), 100);
     } catch (error) {
       console.error('Error sending message:', error);
-      // Restore the message if failed
       setNewMessage(messageText);
       alert('Failed to send message. Please try again.');
     } finally {
       setLoading(false);
-      
-      // Scroll to bottom
-      if (isNearBottom) {
-        setTimeout(() => {
-          scrollToBottom();
-        }, 100);
-      }
     }
   };
 
-  // Reply to message
   const replyToMessage = (message) => {
     setReplyingTo(message);
     document.querySelector('.message-input')?.focus();
   };
 
-  // Pin message
   const pinMessage = async (messageId) => {
     try {
-      let messageRef;
+      const messageRef = selectedGroup
+        ? ref(database, `groups/${selectedGroup.id}/messages/${messageId}`)
+        : ref(database, `chats/${getChatId(currentUser.uid, selectedUser.uid)}/messages/${messageId}`);
       
-      if (selectedGroup) {
-        messageRef = ref(database, `groups/${selectedGroup.id}/messages/${messageId}`);
-      } else {
-        const chatId = getChatId(currentUser.uid, selectedUser.uid);
-        messageRef = ref(database, `chats/${chatId}/messages/${messageId}`);
-      }
-      
-      await update(messageRef, {
-        pinned: true,
-        pinnedBy: currentUser.uid,
-        pinnedAt: Date.now()
-      });
+      await update(messageRef, { pinned: true, pinnedBy: currentUser.uid, pinnedAt: Date.now() });
     } catch (error) {
       console.error('Error pinning message:', error);
     }
   };
 
-  // Unpin message
   const unpinMessage = async (messageId) => {
     try {
-      let messageRef;
+      const messageRef = selectedGroup
+        ? ref(database, `groups/${selectedGroup.id}/messages/${messageId}`)
+        : ref(database, `chats/${getChatId(currentUser.uid, selectedUser.uid)}/messages/${messageId}`);
       
-      if (selectedGroup) {
-        messageRef = ref(database, `groups/${selectedGroup.id}/messages/${messageId}`);
-      } else {
-        const chatId = getChatId(currentUser.uid, selectedUser.uid);
-        messageRef = ref(database, `chats/${chatId}/messages/${messageId}`);
-      }
-      
-      await update(messageRef, {
-        pinned: false,
-        pinnedBy: null,
-        pinnedAt: null
-      });
+      await update(messageRef, { pinned: false, pinnedBy: null, pinnedAt: null });
     } catch (error) {
       console.error('Error unpinning message:', error);
     }
   };
 
-  // Scroll to message
   const scrollToMessage = (messageId) => {
     const messageElement = document.querySelector(`.message-container-${messageId}`);
     if (messageElement) {
       messageElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
       messageElement.style.backgroundColor = 'rgba(33, 150, 243, 0.1)';
-      setTimeout(() => {
-        messageElement.style.backgroundColor = '';
-      }, 2000);
+      setTimeout(() => { messageElement.style.backgroundColor = ''; }, 2000);
     }
   };
 
-  const formatTime = (timestamp) => {
-    if (!timestamp) return '';
-    const date = new Date(timestamp);
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  // Effects
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (showEmojiPicker && emojiButtonRef.current && !emojiButtonRef.current.contains(event.target) && !event.target.closest('.emoji-picker-container')) {
+        setShowEmojiPicker(false);
+      }
+    };
+    
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showEmojiPicker]);
+
+  useEffect(() => {
+    if ((selectedUser || selectedGroup) && currentUser) {
+      const typingRef = selectedGroup
+        ? ref(database, `groups/${selectedGroup.id}/typing`)
+        : ref(database, `chats/${getChatId(currentUser.uid, selectedUser.uid)}/typing`);
+      
+      const unsubscribe = onValue(typingRef, (snapshot) => {
+        const typingData = snapshot.val() || {};
+        
+        if (selectedGroup) {
+          const otherTypingUsers = {};
+          Object.entries(typingData).forEach(([userId, typingInfo]) => {
+            if (userId !== currentUser.uid && typingInfo) otherTypingUsers[userId] = typingInfo;
+          });
+          setTypingUsers(otherTypingUsers);
+          setOtherUserTyping(Object.keys(otherTypingUsers).length > 0);
+        } else {
+          setOtherUserTyping(typingData[selectedUser.uid] !== undefined && typingData[selectedUser.uid] !== null);
+        }
+      });
+
+      return () => {
+        unsubscribe();
+        if (isTyping) updateTypingStatus(false);
+      };
+    }
+  }, [selectedUser, selectedGroup, currentUser, isTyping]);
+
+  useEffect(() => {
+    return () => {
+      if (typingTimeout.current) clearTimeout(typingTimeout.current);
+      if (isTyping) updateTypingStatus(false);
+    };
+  }, [isTyping]);
+
+  useEffect(() => {
+    if ((selectedUser || selectedGroup) && currentUser) {
+      const messagesRef = selectedGroup
+        ? ref(database, `groups/${selectedGroup.id}/messages`)
+        : ref(database, `chats/${getChatId(currentUser.uid, selectedUser.uid)}/messages`);
+      
+      const unsubscribe = onValue(messagesRef, (snapshot) => {
+        const messagesData = snapshot.val() || {};
+        const messagesList = Object.keys(messagesData)
+          .map(key => ({
+            id: key,
+            ...messagesData[key],
+            status: messagesData[key].status || 'sent',
+            readBy: messagesData[key].readBy || {},
+            pinned: messagesData[key].pinned || false
+          }))
+          .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+        
+        setMessages(messagesList);
+        setPinnedMessages(messagesList.filter(msg => msg.pinned && !msg.deleted));
+      });
+
+      return () => unsubscribe();
+    }
+  }, [selectedUser, selectedGroup, currentUser]);
+
+  useEffect(() => {
+    if (isNearBottom) scrollToBottom();
+  }, [messages]);
+
+  const handleScroll = () => {
+    if (messagesContainerRef.current) {
+      const { scrollTop, scrollHeight, clientHeight } = messagesContainerRef.current;
+      const nearBottom = scrollHeight - scrollTop - clientHeight < 100;
+      setIsNearBottom(nearBottom);
+      setShowScrollToBottom(!nearBottom);
+    }
+  };
+
+  const scrollToBottom = () => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+
+  const getTypingDisplayText = () => {
+    if (selectedGroup && Object.keys(typingUsers).length > 0) {
+      const userNames = Object.values(typingUsers).slice(0, 2).map(user => user.userName.split(' ')[0]);
+      return userNames.length === 1 ? `${userNames[0]} is typing...` : userNames.length === 2 ? `${userNames[0]} and ${userNames[1]} are typing...` : `${userNames.length} people are typing...`;
+    } else if (otherUserTyping && selectedUser) {
+      return `${(selectedUser.displayName || selectedUser.email).split(' ')[0]} is typing...`;
+    }
+    return null;
+  };
+
+  const handleEmojiSelect = (emoji) => {
+    setNewMessage(prev => prev + emoji);
+    document.querySelector('.message-input')?.focus();
+    
+    if (!isTyping && (selectedUser || selectedGroup)) {
+      setIsTyping(true);
+      updateTypingStatus(true);
+      if (typingTimeout.current) clearTimeout(typingTimeout.current);
+      typingTimeout.current = setTimeout(() => {
+        if (isTyping) {
+          setIsTyping(false);
+          updateTypingStatus(false);
+        }
+      }, 1500);
+    }
   };
 
   const formatLastSeen = (lastSeen) => {
     if (!lastSeen) return 'Never';
-    const date = new Date(lastSeen);
-    const now = new Date();
-    const diffMs = now - date;
-    const diffMins = Math.floor(diffMs / 60000);
-    
+    const diffMins = Math.floor((new Date() - new Date(lastSeen)) / 60000);
     if (diffMins < 1) return 'Just now';
     if (diffMins < 60) return `${diffMins}m ago`;
     if (diffMins < 1440) return `${Math.floor(diffMins / 60)}h ago`;
-    return date.toLocaleDateString();
-  };
-
-  // TYPING INDICATOR: Get typing display text
-  const getTypingDisplayText = () => {
-    if (selectedGroup && Object.keys(typingUsers).length > 0) {
-      const userNames = Object.values(typingUsers)
-        .slice(0, 2)
-        .map(user => user.userName.split(' ')[0]);
-      
-      if (userNames.length === 1) {
-        return `${userNames[0]} is typing...`;
-      } else if (userNames.length === 2) {
-        return `${userNames[0]} and ${userNames[1]} are typing...`;
-      } else {
-        return `${userNames.length} people are typing...`;
-      }
-    } else if (otherUserTyping && selectedUser) {
-      const userName = selectedUser.displayName || selectedUser.email;
-      return `${userName.split(' ')[0]} is typing...`;
-    }
-    return null;
+    return new Date(lastSeen).toLocaleDateString();
   };
 
   return (
@@ -565,13 +496,8 @@ const ChatArea = ({ selectedUser, selectedGroup, currentUser }) => {
               <div className="user-avatar">
                 <div className="user-avatar-circle">
                   {selectedUser.photoURL ? (
-                    <img 
-                      src={selectedUser.photoURL} 
-                      alt={selectedUser.displayName || selectedUser.email}
-                    />
-                  ) : (
-                    (selectedUser.displayName || selectedUser.email).charAt(0).toUpperCase()
-                  )}
+                    <img src={selectedUser.photoURL} alt={selectedUser.displayName || selectedUser.email} />
+                  ) : (selectedUser.displayName || selectedUser.email).charAt(0).toUpperCase()}
                 </div>
               </div>
               <div>
@@ -587,23 +513,14 @@ const ChatArea = ({ selectedUser, selectedGroup, currentUser }) => {
                 <div className="group-avatar">
                   <div className="group-avatar-circle">
                     {selectedGroup.avatar ? (
-                      <img 
-                        src={selectedGroup.avatar} 
-                        alt={selectedGroup.name}
-                      />
-                    ) : (
-                      selectedGroup.name.charAt(0).toUpperCase()
-                    )}
+                      <img src={selectedGroup.avatar} alt={selectedGroup.name} />
+                    ) : selectedGroup.name.charAt(0).toUpperCase()}
                   </div>
                 </div>
                 <div className="group-header-details">
                   <h3>{selectedGroup.name}</h3>
-                  {selectedGroup.description && (
-                    <div className="group-description">{selectedGroup.description}</div>
-                  )}
-                  <div className="group-member-count">
-                    {selectedGroup.memberCount} member{selectedGroup.memberCount !== 1 ? 's' : ''}
-                  </div>
+                  {selectedGroup.description && <div className="group-description">{selectedGroup.description}</div>}
+                  <div className="group-member-count">{selectedGroup.memberCount} member{selectedGroup.memberCount !== 1 ? 's' : ''}</div>
                 </div>
               </div>
               <div className="group-actions">
@@ -613,49 +530,27 @@ const ChatArea = ({ selectedUser, selectedGroup, currentUser }) => {
             </div>
           )}
 
-          {/* Pinned Messages Section */}
+          {/* Pinned Messages */}
           {pinnedMessages.length > 0 && (
             <div className="pinned-messages-section">
               <div className="pinned-messages-header">
                 <span>📌 Pinned Messages ({pinnedMessages.length})</span>
-                <button 
-                  className="pinned-messages-toggle"
-                  onClick={() => setShowPinnedMessages(!showPinnedMessages)}
-                >
+                <button className="pinned-messages-toggle" onClick={() => setShowPinnedMessages(!showPinnedMessages)}>
                   {showPinnedMessages ? 'Hide' : 'Show'}
                 </button>
               </div>
               {showPinnedMessages && (
                 <div className="pinned-messages-list">
                   {pinnedMessages.map(message => (
-                    <div 
-                      key={message.id}
-                      className="pinned-message-item"
-                      onClick={() => scrollToMessage(message.id)}
-                    >
+                    <div key={message.id} className="pinned-message-item" onClick={() => scrollToMessage(message.id)}>
                       <div className="pinned-message-content">
-                        {message.imageUrl ? (
-                          <div className="pinned-message-image">
-                            <span>🖼️ Image</span>
-                          </div>
-                        ) : (
-                          message.text
-                        )}
+                        {message.imageUrl ? '🖼️ Image' : message.type === 'voice' ? '🎤 Voice message' : message.text}
                       </div>
                       <div className="pinned-message-meta">
                         <span className="pinned-message-sender">{message.senderName}</span>
                         <div>
                           <span>{formatTime(message.createdAt)}</span>
-                          <button
-                            className="unpin-btn"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              unpinMessage(message.id);
-                            }}
-                            title="Unpin message"
-                          >
-                            ✕
-                          </button>
+                          <button className="unpin-btn" onClick={(e) => { e.stopPropagation(); unpinMessage(message.id); }} title="Unpin">✕</button>
                         </div>
                       </div>
                     </div>
@@ -670,141 +565,119 @@ const ChatArea = ({ selectedUser, selectedGroup, currentUser }) => {
               <div className="reply-info">
                 <div className="reply-to-user">Replying to {replyingTo.senderName}</div>
                 <div className="reply-text">
-                  {replyingTo.imageUrl ? '[Image]' : replyingTo.text}
+                  {replyingTo.imageUrl ? '[Image]' : replyingTo.type === 'voice' ? '[Voice message]' : replyingTo.text}
                 </div>
               </div>
-              <button 
-                className="reply-close-btn"
-                onClick={() => setReplyingTo(null)}
-              >
-                ✕
-              </button>
+              <button className="reply-close-btn" onClick={() => setReplyingTo(null)}>✕</button>
             </div>
           )}
 
           {/* Messages Container */}
-          <div 
-            ref={messagesContainerRef}
-            className="messages-container"
-            onScroll={handleScroll}
-          >
+          <div ref={messagesContainerRef} className="messages-container" onScroll={handleScroll}>
             {messages.length === 0 ? (
-              <div className="no-messages">
-                <p>No messages yet. Start the conversation!</p>
-              </div>
-            ) : (
-              messages.map((message) => (
-                <MessageItem
-                  key={message.id}
-                  message={message}
-                  currentUser={currentUser}
-                  selectedUser={selectedUser}
-                  selectedGroup={selectedGroup}
-                  onReply={replyToMessage}
-                  onPin={pinMessage}
-                  onUnpin={unpinMessage}
-                  reactions={reactions}
-                />
-              ))
-            )}
+              <div className="no-messages"><p>No messages yet. Start the conversation!</p></div>
+            ) : messages.map((message) => (
+              <MessageItem
+                key={message.id}
+                message={message}
+                currentUser={currentUser}
+                selectedUser={selectedUser}
+                selectedGroup={selectedGroup}
+                onReply={replyToMessage}
+                onPin={pinMessage}
+                onUnpin={unpinMessage}
+                reactions={reactions}
+                isPlayingVoice={playingVoiceId === message.id}
+                onPlayVoice={() => playVoiceMessage(message.id, message.audioData)}
+              />
+            ))}
             
-            {/* TYPING INDICATOR DISPLAY */}
             {getTypingDisplayText() && (
               <div className="typing-indicator">
-                <div className="typing-dots">
-                  <span className="dot"></span>
-                  <span className="dot"></span>
-                  <span className="dot"></span>
-                </div>
+                <div className="typing-dots"><span className="dot"></span><span className="dot"></span><span className="dot"></span></div>
                 <span className="typing-text">{getTypingDisplayText()}</span>
               </div>
             )}
-            
             <div ref={messagesEndRef} />
           </div>
 
-          {/* Scroll to Bottom Button */}
-          {showScrollToBottom && (
-            <button
-              className="scroll-to-bottom"
-              onClick={scrollToBottom}
-              title="Scroll to bottom"
-            >
-              ↓
-            </button>
-          )}
+          {showScrollToBottom && <button className="scroll-to-bottom" onClick={scrollToBottom} title="Scroll to bottom">↓</button>}
 
-          {/* Message Input with Emoji Picker and Image Upload */}
-          <div className="message-input-actions">
-            {/* Image Upload Button */}
-            <div className="image-upload-wrapper">
-              <ImageUploadButton 
-                onImageUpload={handleImageUpload}
+          {/* Message Input - CORRECTED STRUCTURE */}
+          <form className="message-form" onSubmit={sendMessage}>
+            <div className="message-input-container">
+              <button 
+                type="button" 
+                className="emoji-toggle-btn" 
+                onClick={() => setShowEmojiPicker(!showEmojiPicker)} 
+                ref={emojiButtonRef}
+              >
+                {showEmojiPicker ? '😊' : '😀'}
+              </button>
+              <input 
+                type="text" 
+                value={newMessage} 
+                onChange={handleInputChange} 
+                placeholder={replyingTo ? `Reply to ${replyingTo.senderName}...` : selectedGroup ? `Message ${selectedGroup.name}...` : "Type a message..."} 
+                disabled={loading || uploadingImage || uploadingVoice} 
+                className="message-input" 
               />
-              {uploadingImage && (
-                <div className="uploading-indicator">
-                  <div className="uploading-spinner"></div>
-                  <span>Uploading image...</span>
+              
+              {/* Image and Voice buttons inside the input container */}
+              <div className="input-actions">
+                <div className="image-upload-wrapper">
+                  <ImageUploadButton onImageUpload={handleImageUpload} />
+                  {uploadingImage && <div className="uploading-indicator"><div className="uploading-spinner"></div><span>Uploading image...</span></div>}
                 </div>
-              )}
-            </div>
-
-            <form 
-              className="message-form"
-              onSubmit={sendMessage}
-            >
-              <div className="message-input-container">
-                {/* Emoji Toggle Button */}
-                <button
-                  type="button"
-                  className="emoji-toggle-btn"
-                  onClick={toggleEmojiPicker}
-                  ref={emojiButtonRef}
-                  aria-label="Toggle emoji picker"
-                >
-                  {showEmojiPicker ? '😊' : '😀'}
-                </button>
                 
-                {/* Message Input */}
-                <input
-                  type="text"
-                  value={newMessage}
-                  onChange={handleInputChange}
-                  placeholder={
-                    replyingTo 
-                      ? `Reply to ${replyingTo.senderName}...` 
-                      : selectedGroup
-                        ? `Message ${selectedGroup.name}...`
-                        : "Type a message..."
-                  }
-                  disabled={loading || uploadingImage}
-                  className="message-input"
+                <button 
+                  type="button" 
+                  className="voice-btn" 
+                  onClick={() => setShowVoiceRecorder(true)} 
+                  disabled={uploadingVoice} 
+                  title="Record voice message"
+                >
+                  <Mic size={20} />
+                </button>
+                {uploadingVoice && <div className="uploading-indicator"><div className="uploading-spinner"></div><span>Uploading voice...</span></div>}
+              </div>
+            </div>
+            
+            <button 
+              type="submit" 
+              disabled={loading || !newMessage.trim() || uploadingImage || uploadingVoice} 
+              className={`send-btn ${newMessage.trim() ? 'active' : 'inactive'}`}
+            >
+              {loading ? (
+                <span className="sending-indicator">
+                  <span className="sending-dot"></span>
+                  <span className="sending-dot"></span>
+                  <span className="sending-dot"></span>
+                </span>
+              ) : 'Send'}
+            </button>
+          </form>
+
+          {/* Voice Recorder Modal */}
+          {showVoiceRecorder && (
+            <div className="voice-recorder-modal">
+              <div className="modal-backdrop" onClick={() => setShowVoiceRecorder(false)} />
+              <div className="modal-content">
+                <VoiceRecorder 
+                  onSend={sendVoiceMessage} 
+                  onCancel={() => setShowVoiceRecorder(false)} 
                 />
               </div>
+            </div>
+          )}
 
-              <button 
-                type="submit" 
-                disabled={loading || !newMessage.trim() || uploadingImage}
-                className={`send-btn ${newMessage.trim() ? 'active' : 'inactive'}`}
-              >
-                {loading ? (
-                  <span className="sending-indicator">
-                    <span className="sending-dot"></span>
-                    <span className="sending-dot"></span>
-                    <span className="sending-dot"></span>
-                  </span>
-                ) : 'Send'}
-              </button>
-
-              {/* Emoji Picker Component */}
-              <EmojiPicker
-                isOpen={showEmojiPicker}
-                onEmojiClick={handleEmojiSelect}
-                onClose={() => setShowEmojiPicker(false)}
-                position="top"
-              />
-            </form>
-          </div>
+          {/* Emoji Picker */}
+          <EmojiPicker 
+            isOpen={showEmojiPicker} 
+            onEmojiClick={handleEmojiSelect} 
+            onClose={() => setShowEmojiPicker(false)} 
+            position="top" 
+          />
         </>
       ) : (
         <div className="empty-chat">
