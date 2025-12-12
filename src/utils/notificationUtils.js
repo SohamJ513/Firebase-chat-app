@@ -10,7 +10,7 @@ class NotificationService {
     this.currentToken = null;
     
     // ⚠️ Replace with your actual VAPID key from Firebase Console
-    this.vapidKey = "BLeOFPybtVQ03_iABh2j7nHy4eOK7uWXLRRsaCX43cESRR6u4Ni-p8VZcXljVPNTTQJDKrI-uB0DckALT0KgAxI";
+    this.vapidKey = "Enter your Firebase VAPID key here";
   }
 
   async init() {
