@@ -95,6 +95,112 @@ body {
   flex-direction: column;
 }
 
+/* Notification Status Styles */
+.notification-status {
+  margin: 0 10px;
+  display: flex;
+  align-items: center;
+}
+
+.notification-badge {
+  font-size: 18px;
+  cursor: default;
+  transition: transform 0.2s;
+}
+
+.notification-badge:hover {
+  transform: scale(1.1);
+}
+
+.notification-badge.muted {
+  opacity: 0.5;
+}
+
+/* Theme-specific styles for notification badge */
+[data-theme="dark"] .notification-badge {
+  filter: brightness(0.8);
+}
+
+/* Loading spinner */
+.loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  gap: 15px;
+}
+
+.spinner {
+  width: 40px;
+  height: 40px;
+  border: 4px solid #f3f3f3;
+  border-top: 4px solid #007bff;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+[data-theme="dark"] .spinner {
+  border-color: #333;
+  border-top-color: #007bff;
+}
+
+/* App header improvements */
+.app-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 15px 20px;
+  background-color: var(--header-bg);
+  color: var(--header-text);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+}
+
+.app-header h1 {
+  margin: 0;
+  font-size: 1.5rem;
+}
+
+.user-info {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+.theme-toggle-btn, .logout-btn {
+  padding: 8px 15px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.theme-toggle-btn {
+  background-color: var(--theme-btn-bg);
+  color: var(--theme-btn-text);
+}
+
+.logout-btn {
+  background-color: var(--logout-btn-bg, #dc3545);
+  color: white;
+}
+
+.theme-toggle-btn:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+
+.logout-btn:hover {
+  background-color: var(--logout-btn-hover, #c82333);
+  transform: translateY(-1px);
+}
+
 /* Loading Spinner */
 .loading {
   display: flex;
@@ -151,6 +257,58 @@ body {
 
 .user-info span {
   font-weight: 500;
+}
+
+/* Notification Status Indicator */
+.notification-status-indicator {
+  margin: 0 10px;
+  font-size: 18px;
+  cursor: default;
+  opacity: 0.8;
+}
+
+.notification-status-indicator:hover {
+  opacity: 1;
+}
+
+/* Test notification button */
+.test-notification-btn {
+  background-color: #28a745;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 5px 10px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: background-color 0.2s;
+}
+
+.test-notification-btn:hover {
+  background-color: #218838;
+}
+
+/* Loading spinner */
+.loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  gap: 15px;
+}
+
+.spinner {
+  width: 40px;
+  height: 40px;
+  border: 4px solid #f3f3f3;
+  border-top: 4px solid #007bff;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
 }
 
 /* Theme Toggle Button */

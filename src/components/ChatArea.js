@@ -1,4 +1,4 @@
-// src/components/ChatArea.js - UPDATED WITH IMAGE UPLOAD
+// src/components/ChatArea.js - UPDATED WITH NOTIFICATION UTILITY
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   ref, 
@@ -6,10 +6,10 @@ import {
   push, 
   update,
   serverTimestamp,
-  set,
-  onDisconnect
+  set
 } from 'firebase/database';
 import { database } from '../firebase';
+import { sendNotification } from '../utils/sendNotification'; // ADDED: Import utility
 import MessageItem from './MessageItem';
 import EmojiPicker from './EmojiPicker';
 import ImageUploadButton from './ImageUploadButton';
@@ -35,7 +35,6 @@ const ChatArea = ({ selectedUser, selectedGroup, currentUser }) => {
   // EMOJI PICKER STATES
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const emojiButtonRef = useRef(null);
-  const emojiPickerRef = useRef(null);
   
   const messagesEndRef = useRef(null);
   const messagesContainerRef = useRef(null);
@@ -46,6 +45,44 @@ const ChatArea = ({ selectedUser, selectedGroup, currentUser }) => {
   const getChatId = (uid1, uid2) => {
     return uid1 < uid2 ? `${uid1}_${uid2}` : `${uid2}_${uid1}`;
   };
+
+  // ========== UPDATED: NOTIFICATION TRIGGER FUNCTION ==========
+  const triggerNotificationForRecipient = async (messageData) => {
+    try {
+      // Only trigger for direct messages (not groups)
+      if (selectedGroup || !selectedUser) {
+        console.log('Skipping notification: Group chat or no selected user');
+        return;
+      }
+      
+      const recipientId = selectedUser.uid;
+      const chatId = getChatId(currentUser.uid, recipientId);
+      
+      console.log('🔔 Preparing notification for recipient:', recipientId);
+      
+      // Use the utility function from sendNotification.js
+      const success = await sendNotification({
+        recipientId: recipientId,
+        title: currentUser.displayName || currentUser.email || 'New Message',
+        body: messageData.text || '[Image]',
+        chatId: chatId,
+        senderId: currentUser.uid,
+        senderName: currentUser.displayName || currentUser.email,
+        messageText: messageData.text || '[Image]',
+        type: 'message'
+      });
+      
+      if (success) {
+        console.log('✅ Notification successfully triggered for:', recipientId);
+      } else {
+        console.log('⚠️ Notification could not be sent (recipient may not have FCM token)');
+      }
+      
+    } catch (error) {
+      console.error('❌ Error triggering notification:', error);
+    }
+  };
+  // ===========================================================
 
   // TYPING INDICATOR: Update typing status in Firebase
   const updateTypingStatus = (isTyping) => {
@@ -139,6 +176,12 @@ const ChatArea = ({ selectedUser, selectedGroup, currentUser }) => {
       }
 
       await push(messagesRef, messageData);
+      
+      // ========== TRIGGER NOTIFICATION ==========
+      if (selectedUser) {
+        await triggerNotificationForRecipient(messageData);
+      }
+      // ==========================================
       
       if (selectedGroup) {
         const groupRef = ref(database, `groups/${selectedGroup.id}`);
@@ -297,6 +340,10 @@ const ChatArea = ({ selectedUser, selectedGroup, currentUser }) => {
     }
   }, [selectedUser, selectedGroup, currentUser]);
 
+  // ========== REMOVED: Notification listener (moved to App.js) ==========
+  // The notification listener is now handled in App.js for better centralization
+  // ======================================================================
+
   // Handle scroll behavior
   useEffect(() => {
     if (isNearBottom) {
@@ -318,7 +365,7 @@ const ChatArea = ({ selectedUser, selectedGroup, currentUser }) => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
-  // Send text message - UPDATED FIX
+  // Send text message - UPDATED WITH NOTIFICATION
   const sendMessage = async (e) => {
     e.preventDefault();
     if (!newMessage.trim() || (!selectedUser && !selectedGroup) || loading) return;
@@ -367,6 +414,15 @@ const ChatArea = ({ selectedUser, selectedGroup, currentUser }) => {
       };
 
       await push(messagesRef, messageData);
+      
+      // ========== TRIGGER NOTIFICATION ==========
+      if (selectedUser) {
+        await triggerNotificationForRecipient({
+          ...messageData,
+          text: messageText
+        });
+      }
+      // ==========================================
       
       // Clear reply if exists
       setReplyingTo(null);
