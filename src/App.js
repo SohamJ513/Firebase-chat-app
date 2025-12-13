@@ -1,8 +1,10 @@
-// App.js - Complete with improved notification handling
+// App.js - Complete with React Router, Landing Page, and improved notification handling
 import React, { useState, useEffect } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { getDatabase, ref, onValue, set, get, remove } from 'firebase/database';
+import { getDatabase, ref, onValue, set } from 'firebase/database';
 import { auth } from './firebase';
+import LandingPage from './components/LandingPage';
 import AuthPage from './components/AuthPage';
 import ChatPage from './components/ChatPage';
 import notificationService from './utils/notificationUtils';
@@ -36,7 +38,7 @@ function App() {
     localStorage.setItem('chatAppTheme', theme);
   }, [theme]);
 
-  // Setup notification listener for Realtime Database - IMPROVED VERSION
+  // Setup notification listener for Realtime Database
   const setupNotificationListener = (userId) => {
     if (!userId) return null;
     
@@ -67,12 +69,12 @@ function App() {
           return;
         }
         
-        // Optional: Don't show if app is focused (remove this if you want notifications even when focused)
+        // Optional: Don't show if app is focused
         if (document.hasFocus() && document.visibilityState === 'visible') {
           return;
         }
         
-        // Create UNIQUE tag for each notification (include timestamp and random string)
+        // Create UNIQUE tag for each notification
         const notificationTag = `chat-${notification.chatId || 'general'}-${notification.key}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
         
         try {
@@ -81,7 +83,7 @@ function App() {
             body: notification.body || 'You have a new message',
             icon: '/favicon.ico',
             badge: '/favicon.ico',
-            tag: notificationTag, // Unique tag to prevent replacement
+            tag: notificationTag,
             data: notification,
             requireInteraction: false,
             silent: false,
@@ -109,7 +111,7 @@ function App() {
             // Navigate to chat if chatId exists
             if (notification.chatId) {
               console.log('Opening chat:', notification.chatId);
-              // You can add navigation logic here
+              // Navigation handled by router
             }
           };
           
@@ -161,7 +163,7 @@ function App() {
           if (currentPermission === 'granted') {
             console.log('Notification permission already granted, checking token...');
             
-            // Get token via notificationService (it will auto-save to DB)
+            // Get token via notificationService
             const token = await notificationService.getToken();
             if (token) {
               console.log('✅ Token obtained and saved to Realtime DB');
@@ -216,7 +218,6 @@ function App() {
 
   const handleLogout = async () => {
     try {
-      // notificationService.cleanupOnLogout() already removes token
       await notificationService.cleanupOnLogout();
       
       // Unsubscribe from notification listener
@@ -242,13 +243,11 @@ function App() {
   const handleEnableNotifications = async () => {
     console.log('User clicked enable notifications');
     try {
-      // notificationService.requestPermission() handles everything
       const token = await notificationService.requestPermission();
       
       if (token) {
         setNotificationStatus('granted');
         console.log('✅ Notifications enabled successfully!');
-        console.log('   Token saved as string to Realtime DB via notificationService');
         
         // Verify token was saved
         const savedToken = await notificationService.getTokenFromDatabase();
@@ -292,29 +291,11 @@ function App() {
       return;
     }
     
-    // Use notificationService's method
     const token = await notificationService.getTokenFromDatabase();
     if (token) {
       console.log('FCM Token in DB:', token);
       console.log('Token length:', token.length);
-      console.log('First 50 chars:', token.substring(0, 50) + '...');
-      
-      alert(`FCM Token exists in DB (${token.length} chars):\n${token.substring(0, 50)}...\n\nCheck console for full token.`);
-      
-      // Also check if it's stored as string
-      const dbRef = ref(db, `users/${user.uid}/fcmToken`);
-      const { get } = await import('firebase/database');
-      const snapshot = await get(dbRef);
-      const rawData = snapshot.val();
-      console.log('Raw data from DB:', rawData);
-      console.log('Type of raw data:', typeof rawData);
-      
-      if (typeof rawData === 'string') {
-        console.log('✅ Token is stored as string (correct!)');
-      } else if (rawData && typeof rawData === 'object') {
-        console.log('⚠️ Token is stored as object (needs cleanup)');
-        console.log('Object structure:', rawData);
-      }
+      alert(`FCM Token exists in DB (${token.length} chars)\nCheck console for details.`);
     } else {
       console.log('No FCM token found in DB');
       alert('No FCM token found in Realtime Database');
@@ -329,7 +310,7 @@ function App() {
     }
     
     const dbRef = ref(db, `users/${user.uid}/fcmToken`);
-    const { get } = await import('firebase/database');
+    const { get, remove } = await import('firebase/database');
     const snapshot = await get(dbRef);
     
     if (snapshot.exists()) {
@@ -338,11 +319,7 @@ function App() {
       // Check if it's an object (old format)
       if (typeof data === 'object' && data !== null) {
         console.log('Found old object format, cleaning up...');
-        
-        // Remove the old object
-        const { remove } = await import('firebase/database');
         await remove(dbRef);
-        
         console.log('✅ Old token format removed');
         alert('Old token format removed! Please enable notifications again.');
       } else if (typeof data === 'string') {
@@ -358,7 +335,6 @@ function App() {
   // Test notification function (for debugging)
   const testNotification = () => {
     if (Notification.permission === 'granted') {
-      // Show direct browser notification with unique tag
       new Notification('Test Notification', {
         body: 'This is a test notification from the browser!',
         icon: '/favicon.ico',
@@ -366,7 +342,6 @@ function App() {
         tag: 'test-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9)
       });
       
-      // Also test service worker notification
       if ('serviceWorker' in navigator) {
         navigator.serviceWorker.ready.then(registration => {
           registration.showNotification('Service Worker Test', {
@@ -423,100 +398,129 @@ function App() {
     );
   }
 
+  // ChatAppHeader component for the chat page
+  const ChatAppHeader = () => (
+    <header className="app-header">
+      <h1>SparkChat</h1>
+      <div className="user-info">
+        <span>Welcome, {user.displayName || user.email}</span>
+        
+        {/* Unread notification count */}
+        {unreadCount > 0 && (
+          <div className="notification-badge" title={`${unreadCount} unread notification${unreadCount !== 1 ? 's' : ''}`}>
+            <span>{unreadCount}</span>
+          </div>
+        )}
+        
+        {/* Notification status indicator */}
+        <span 
+          className="notification-status-indicator" 
+          title={`Notifications: ${notificationStatus}\nShown: ${shownNotifications.size}`}
+          onClick={() => console.log('Notification status:', notificationStatus, 'Shown:', shownNotifications)}
+          style={{ cursor: 'pointer' }}
+        >
+          {notificationStatus === 'granted' ? '🔔' : '🔕'}
+        </span>
+        
+        {/* Debug buttons - optional, can be removed in production */}
+        <button 
+          onClick={checkFCMTokenInDB}
+          className="test-notification-btn"
+          style={{ backgroundColor: '#2196f3' }}
+          title="Check if FCM token is saved in DB"
+        >
+          Check Token
+        </button>
+        
+        <button 
+          onClick={cleanupOldTokenFormat}
+          className="test-notification-btn"
+          style={{ backgroundColor: '#ff9800' }}
+          title="Cleanup old token format"
+        >
+          Cleanup Token
+        </button>
+        
+        <button 
+          onClick={clearShownNotifications}
+          className="test-notification-btn"
+          style={{ backgroundColor: '#607d8b' }}
+          title="Clear shown notifications cache"
+        >
+          Clear Cache
+        </button>
+        
+        <button 
+          onClick={testNotification}
+          className="test-notification-btn"
+          style={{ backgroundColor: '#4caf50' }}
+          title="Test browser notifications"
+        >
+          Test Notif
+        </button>
+        
+        <button 
+          onClick={triggerTestNotification}
+          className="test-notification-btn"
+          style={{ backgroundColor: '#9c27b0' }}
+          title="Trigger test notification in database"
+        >
+          Trigger Notif
+        </button>
+        
+        <button onClick={toggleTheme} className="theme-toggle-btn">
+          {theme === 'light' ? '🌙 Dark' : '☀️ Light'}
+        </button>
+        <button onClick={handleLogout} className="logout-btn">
+          Logout
+        </button>
+      </div>
+    </header>
+  );
+
   return (
-    <div className="app">
-      {user ? (
-        <div className="app-container">
-          <header className="app-header">
-            <h1>Chat App</h1>
-            <div className="user-info">
-              <span>Welcome, {user.displayName || user.email}</span>
-              
-              {/* Unread notification count */}
-              {unreadCount > 0 && (
-                <div className="notification-badge" title={`${unreadCount} unread notification${unreadCount !== 1 ? 's' : ''}`}>
-                  <span>{unreadCount}</span>
+    <Router>
+      <div className="app">
+        <Routes>
+          {/* Landing Page - Always accessible */}
+          <Route path="/" element={<LandingPage />} />
+          
+          {/* Auth Page - Only accessible if NOT logged in */}
+          <Route 
+            path="/auth" 
+            element={
+              user ? <Navigate to="/chat" /> : <AuthPage />
+            } 
+          />
+          
+          {/* Chat Page - Only accessible if logged in */}
+          <Route 
+            path="/chat" 
+            element={
+              user ? (
+                <div className="app-container">
+                  <ChatAppHeader />
+                  <ChatPage user={user} />
                 </div>
-              )}
-              
-              {/* Notification status indicator */}
-              <span 
-                className="notification-status-indicator" 
-                title={`Notifications: ${notificationStatus}\nShown: ${shownNotifications.size}`}
-                onClick={() => console.log('Notification status:', notificationStatus, 'Shown:', shownNotifications)}
-                style={{ cursor: 'pointer' }}
-              >
-                {notificationStatus === 'granted' ? '🔔' : '🔕'}
-              </span>
-              
-              {/* Debug buttons */}
-              <button 
-                onClick={checkFCMTokenInDB}
-                className="test-notification-btn"
-                style={{ backgroundColor: '#2196f3' }}
-                title="Check if FCM token is saved in DB"
-              >
-                Check Token
-              </button>
-              
-              <button 
-                onClick={cleanupOldTokenFormat}
-                className="test-notification-btn"
-                style={{ backgroundColor: '#ff9800' }}
-                title="Cleanup old token format"
-              >
-                Cleanup Token
-              </button>
-              
-              <button 
-                onClick={clearShownNotifications}
-                className="test-notification-btn"
-                style={{ backgroundColor: '#607d8b' }}
-                title="Clear shown notifications cache"
-              >
-                Clear Cache
-              </button>
-              
-              <button 
-                onClick={testNotification}
-                className="test-notification-btn"
-                style={{ backgroundColor: '#4caf50' }}
-                title="Test browser notifications"
-              >
-                Test Notif
-              </button>
-              
-              <button 
-                onClick={triggerTestNotification}
-                className="test-notification-btn"
-                style={{ backgroundColor: '#9c27b0' }}
-                title="Trigger test notification in database"
-              >
-                Trigger Notif
-              </button>
-              
-              <button onClick={toggleTheme} className="theme-toggle-btn">
-                {theme === 'light' ? '🌙 Dark' : '☀️ Light'}
-              </button>
-              <button onClick={handleLogout} className="logout-btn">
-                Logout
-              </button>
-            </div>
-          </header>
-          <ChatPage user={user} />
-        </div>
-      ) : (
-        <AuthPage />
-      )}
-      
-      {/* Show notification prompt only when needed */}
-      {user && notificationStatus === 'default' && (
-        <NotificationPrompt 
-          onEnable={handleEnableNotifications}
-          onDismiss={handleDismissNotifications}
-        />
-      )}
-    </div>
+              ) : (
+                <Navigate to="/auth" />
+              )
+            } 
+          />
+          
+          {/* Redirect any unknown routes to landing page */}
+          <Route path="*" element={<Navigate to="/" />} />
+        </Routes>
+        
+        {/* Show notification prompt only when needed (in chat page) */}
+        {user && notificationStatus === 'default' && window.location.pathname === '/chat' && (
+          <NotificationPrompt 
+            onEnable={handleEnableNotifications}
+            onDismiss={handleDismissNotifications}
+          />
+        )}
+      </div>
+    </Router>
   );
 }
 
