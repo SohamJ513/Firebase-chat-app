@@ -500,7 +500,8 @@ const ChatArea = ({ selectedUser, selectedGroup, currentUser }) => {
                   ) : (selectedUser.displayName || selectedUser.email).charAt(0).toUpperCase()}
                 </div>
               </div>
-              <div>
+              {/* FIX APPLIED HERE: Added className="chat-header-details" */}
+              <div className="chat-header-details">
                 <h3>{selectedUser.displayName || selectedUser.email}</h3>
                 <span className={`user-status ${selectedUser.online ? 'online' : 'offline'}`}>
                   {selectedUser.online ? 'Online' : `Last seen ${formatLastSeen(selectedUser.lastSeen)}`}

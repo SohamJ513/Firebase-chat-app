@@ -375,6 +375,12 @@
   transform: translateY(-1px);
 }
 
+.chat-header h3 {
+  color: var(--text-primary);
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
 .chat-header .user-status {
   font-size: 0.875rem;
   color: var(--text-tertiary);

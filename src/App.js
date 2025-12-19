@@ -1,4 +1,4 @@
-// App.js - Updated with email verification check
+// App.js - Updated with email verification check and debug buttons restored
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { onAuthStateChanged, signOut, sendEmailVerification} from 'firebase/auth';
@@ -235,6 +235,113 @@ function App() {
     };
   }, []);
 
+  // ===== DEBUG/TEST HANDLER FUNCTIONS =====
+  
+  // Debug function to check FCM token in DB
+  const checkFCMTokenInDB = async () => {
+    if (!user) {
+      alert('Please log in first');
+      return;
+    }
+    
+    const token = await notificationService.getTokenFromDatabase();
+    if (token) {
+      console.log('FCM Token in DB:', token);
+      console.log('Token length:', token.length);
+      alert(`FCM Token exists in DB (${token.length} chars)\nCheck console for details.`);
+    } else {
+      console.log('No FCM token found in DB');
+      alert('No FCM token found in Realtime Database');
+    }
+  };
+
+  // Cleanup old token format if needed
+  const cleanupOldTokenFormat = async () => {
+    if (!user) {
+      alert('Please log in first');
+      return;
+    }
+    
+    const dbRef = ref(db, `users/${user.uid}/fcmToken`);
+    const { get, remove } = await import('firebase/database');
+    const snapshot = await get(dbRef);
+    
+    if (snapshot.exists()) {
+      const data = snapshot.val();
+      
+      // Check if it's an object (old format)
+      if (typeof data === 'object' && data !== null) {
+        console.log('Found old object format, cleaning up...');
+        await remove(dbRef);
+        console.log('✅ Old token format removed');
+        alert('Old token format removed! Please enable notifications again.');
+      } else if (typeof data === 'string') {
+        console.log('Token is already in string format ✅');
+        alert('Token is already in correct string format!');
+      }
+    } else {
+      console.log('No token found to clean up');
+      alert('No token found in database');
+    }
+  };
+
+  // Test notification function (for debugging)
+  const testNotification = () => {
+    if (Notification.permission === 'granted') {
+      new Notification('Test Notification', {
+        body: 'This is a test notification from the browser!',
+        icon: '/favicon.ico',
+        badge: '/favicon.ico',
+        tag: 'test-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9)
+      });
+      
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.ready.then(registration => {
+          registration.showNotification('Service Worker Test', {
+            body: 'Service worker notifications are working!',
+            icon: '/favicon.ico',
+            badge: '/favicon.ico',
+            tag: 'sw-test-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9)
+          });
+        });
+      }
+    } else {
+      alert('Please enable notifications first using the "Enable Notifications" button');
+    }
+  };
+
+  // Manually trigger a notification (for testing)
+  const triggerTestNotification = async () => {
+    if (!user) return;
+    
+    const notificationKey = `test-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const notificationRef = ref(db, `users/${user.uid}/notifications/${notificationKey}`);
+    
+    await set(notificationRef, {
+      title: 'Test Notification',
+      body: 'This is a manual test notification - ' + new Date().toLocaleTimeString(),
+      chatId: 'test-chat',
+      senderId: 'system',
+      senderName: 'System',
+      messageText: 'Test message content',
+      type: 'test',
+      read: false,
+      createdAt: Date.now()
+    });
+    
+    console.log('✅ Test notification triggered in Realtime DB');
+    console.log('   Key:', notificationKey);
+  };
+
+  // Clear all shown notifications (debug function)
+  const clearShownNotifications = () => {
+    setShownNotifications(new Set());
+    console.log('✅ Cleared all shown notifications');
+    alert('Cleared shown notifications cache. New notifications will appear again.');
+  };
+
+  // ===== END DEBUG/TEST HANDLER FUNCTIONS =====
+
   const handleLogout = async () => {
     try {
       await notificationService.cleanupOnLogout();
@@ -355,7 +462,53 @@ function App() {
           {notificationStatus === 'granted' ? '🔔' : '🔕'}
         </span>
         
-        {/* Debug buttons - optional */}
+        {/* ===== DEBUG/TEST BUTTONS RESTORED ===== */}
+        <button 
+          onClick={checkFCMTokenInDB}
+          className="test-notification-btn"
+          style={{ backgroundColor: '#2196f3' }}
+          title="Check if FCM token is saved in DB"
+        >
+          Check Token
+        </button>
+        
+        <button 
+          onClick={cleanupOldTokenFormat}
+          className="test-notification-btn"
+          style={{ backgroundColor: '#ff9800' }}
+          title="Cleanup old token format"
+        >
+          Cleanup Token
+        </button>
+        
+        <button 
+          onClick={clearShownNotifications}
+          className="test-notification-btn"
+          style={{ backgroundColor: '#607d8b' }}
+          title="Clear shown notifications cache"
+        >
+          Clear Cache
+        </button>
+        
+        <button 
+          onClick={testNotification}
+          className="test-notification-btn"
+          style={{ backgroundColor: '#4caf50' }}
+          title="Test browser notifications"
+        >
+          Test Notif
+        </button>
+        
+        <button 
+          onClick={triggerTestNotification}
+          className="test-notification-btn"
+          style={{ backgroundColor: '#9c27b0' }}
+          title="Trigger test notification in database"
+        >
+          Trigger Notif
+        </button>
+        {/* ===== END DEBUG/TEST BUTTONS ===== */}
+        
         <button onClick={toggleTheme} className="theme-toggle-btn">
           {theme === 'light' ? '🌙 Dark' : '☀️ Light'}
         </button>
