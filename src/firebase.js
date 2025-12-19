@@ -1,16 +1,26 @@
 // firebase.js
 import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider } from 'firebase/auth';
+import { 
+  getAuth, 
+  GoogleAuthProvider,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  updateProfile,
+  sendPasswordResetEmail,
+  signOut,
+  onAuthStateChanged
+} from 'firebase/auth';
 import { getDatabase } from 'firebase/database';
 
 const firebaseConfig = {
-  apiKey: "Enter your firebase api key here",
-  authDomain: "Enter your Auth domain here",
-  projectId: "Your project id",
-  storageBucket: "Your storage bucket id",
-  messagingSenderId: " Your message sender id",
-  appId: "Your app id",
-  measurementId: "Your measurement id"
+  apiKey: "AIzaSyB_2ENI6fCDdM4SCO4AZyaCqAwuYPEHSqc",
+  authDomain: "chat-app-f4bb5.firebaseapp.com",
+  databaseURL: "https://chat-app-f4bb5-default-rtdb.firebaseio.com",
+  projectId: "chat-app-f4bb5",
+  storageBucket: "chat-app-f4bb5.firebasestorage.app",
+  messagingSenderId: "618364636557",
+  appId: "1:618364636557:web:5154882cef1f56409241c4",
+  measurementId: "G-MWET80R2RC"
 };
 
 // Initialize Firebase
@@ -27,5 +37,15 @@ googleProvider.setCustomParameters({
 
 // Initialize Realtime Database and get a reference to the service
 export const database = getDatabase(app);
+
+// Export authentication functions for manual login/signup
+export {
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  updateProfile,
+  sendPasswordResetEmail,
+  signOut,
+  onAuthStateChanged
+};
 
 export default app;
