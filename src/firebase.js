@@ -13,14 +13,14 @@ import {
 import { getDatabase } from 'firebase/database';
 
 const firebaseConfig = {
-  apiKey: "AIzaSyB_2ENI6fCDdM4SCO4AZyaCqAwuYPEHSqc",
-  authDomain: "chat-app-f4bb5.firebaseapp.com",
-  databaseURL: "https://chat-app-f4bb5-default-rtdb.firebaseio.com",
-  projectId: "chat-app-f4bb5",
-  storageBucket: "chat-app-f4bb5.firebasestorage.app",
-  messagingSenderId: "618364636557",
-  appId: "1:618364636557:web:5154882cef1f56409241c4",
-  measurementId: "G-MWET80R2RC"
+  apiKey: "YOUR_API_KEY_HERE",
+  authDomain: "YOUR_AUTH_DOMAIN_HERE",
+  databaseURL: "YOUR_DATABASE_URL_HERE",
+  projectId: "YOUR_PROJECT_ID_HERE",
+  storageBucket: "YOUR_STORAGE_BUCKET_HERE",
+  messagingSenderId: "YOUR_MESSAGING_SENDER_ID_HERE",
+  appId: "YOUR_APP_ID_HERE",
+  measurementId: "YOUR_MEASUREMENT_ID_HERE"
 };
 
 // Initialize Firebase
