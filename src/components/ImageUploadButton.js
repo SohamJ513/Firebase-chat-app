@@ -1,4 +1,4 @@
-// src/components/ImageUploadButton.js - DEBUG VERSION
+// src/components/ImageUploadButton.js - FIXED VERSION
 import React, { useRef, useState } from 'react';
 import cloudinaryConfig from '../cloudinaryConfig';
 
@@ -89,7 +89,8 @@ const ImageUploadButton = ({ onImageUpload }) => {
       alert(`Upload failed: ${error.message}`);
     } finally {
       setUploading(false);
-      event.target.value = '';
+      // REMOVE THIS LINE - it's causing the file dialog to reopen
+      // event.target.value = '';
     }
   };
 
@@ -104,6 +105,7 @@ const ImageUploadButton = ({ onImageUpload }) => {
       />
       
       <button
+        type="button" // ADD THIS - ensures it doesn't submit the form
         onClick={handleButtonClick}
         disabled={uploading}
         style={{

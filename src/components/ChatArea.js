@@ -1,4 +1,4 @@
-// src/components/ChatArea.js - UPDATED WITH CORRECTED LAYOUT
+// src/components/ChatArea.js - UPDATED WITH FIXES
 import React, { useState, useEffect, useRef } from 'react';
 import { ref, onValue, push, update, serverTimestamp, set } from 'firebase/database';
 import { database } from '../firebase';
@@ -34,6 +34,7 @@ const ChatArea = ({ selectedUser, selectedGroup, currentUser }) => {
   const emojiButtonRef = useRef(null);
   const messagesEndRef = useRef(null);
   const messagesContainerRef = useRef(null);
+  const formRef = useRef(null); // ADD THIS LINE
 
   const reactions = ['👍', '❤️', '😂', '😮', '😢', '😡'];
 
@@ -265,9 +266,11 @@ const ChatArea = ({ selectedUser, selectedGroup, currentUser }) => {
     }
   };
 
-  // Message functions
+  // Message functions - UPDATED FUNCTION
   const sendMessage = async (e) => {
     e.preventDefault();
+    e.stopPropagation(); // ADD THIS LINE - prevents event bubbling
+    
     if (!newMessage.trim() || (!selectedUser && !selectedGroup) || loading) return;
 
     if (isTyping) {
@@ -362,7 +365,22 @@ const ChatArea = ({ selectedUser, selectedGroup, currentUser }) => {
     }
   };
 
-  // Effects
+  // Effects - ADD THIS NEW useEffect
+  useEffect(() => {
+    // Prevent any accidental clicks on file inputs
+    const handleClick = (e) => {
+      if (e.target.type === 'file') {
+        e.stopPropagation();
+      }
+    };
+    
+    document.addEventListener('click', handleClick, true);
+    
+    return () => {
+      document.removeEventListener('click', handleClick, true);
+    };
+  }, []);
+
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (showEmojiPicker && emojiButtonRef.current && !emojiButtonRef.current.contains(event.target) && !event.target.closest('.emoji-picker-container')) {
@@ -604,13 +622,21 @@ const ChatArea = ({ selectedUser, selectedGroup, currentUser }) => {
 
           {showScrollToBottom && <button className="scroll-to-bottom" onClick={scrollToBottom} title="Scroll to bottom">↓</button>}
 
-          {/* Message Input - CORRECTED STRUCTURE */}
-          <form className="message-form" onSubmit={sendMessage}>
+          {/* Message Input - UPDATED FORM */}
+          <form 
+            className="message-form" 
+            onSubmit={sendMessage}
+            ref={formRef}
+            onClick={(e) => e.stopPropagation()} // ADD THIS
+          >
             <div className="message-input-container">
               <button 
                 type="button" 
                 className="emoji-toggle-btn" 
-                onClick={() => setShowEmojiPicker(!showEmojiPicker)} 
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowEmojiPicker(!showEmojiPicker);
+                }} 
                 ref={emojiButtonRef}
               >
                 {showEmojiPicker ? '😊' : '😀'}
@@ -625,7 +651,7 @@ const ChatArea = ({ selectedUser, selectedGroup, currentUser }) => {
               />
               
               {/* Image and Voice buttons inside the input container */}
-              <div className="input-actions">
+              <div className="input-actions" onClick={(e) => e.stopPropagation()}>
                 <div className="image-upload-wrapper">
                   <ImageUploadButton onImageUpload={handleImageUpload} />
                   {uploadingImage && <div className="uploading-indicator"><div className="uploading-spinner"></div><span>Uploading image...</span></div>}
@@ -634,7 +660,10 @@ const ChatArea = ({ selectedUser, selectedGroup, currentUser }) => {
                 <button 
                   type="button" 
                   className="voice-btn" 
-                  onClick={() => setShowVoiceRecorder(true)} 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowVoiceRecorder(true);
+                  }} 
                   disabled={uploadingVoice} 
                   title="Record voice message"
                 >
@@ -648,6 +677,7 @@ const ChatArea = ({ selectedUser, selectedGroup, currentUser }) => {
               type="submit" 
               disabled={loading || !newMessage.trim() || uploadingImage || uploadingVoice} 
               className={`send-btn ${newMessage.trim() ? 'active' : 'inactive'}`}
+              onClick={(e) => e.stopPropagation()} // ADD THIS
             >
               {loading ? (
                 <span className="sending-indicator">
